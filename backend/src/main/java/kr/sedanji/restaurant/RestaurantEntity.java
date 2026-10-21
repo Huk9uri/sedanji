@@ -30,5 +30,6 @@ public class RestaurantEntity {
         longitude = place.longitude(); latitude = place.latitude(); placeUrl = place.placeUrl();
     }
     public Long getId() { return id; }
+    public String getName() { return name; }
     public Restaurant toDto(List<Source> mentions) { return new Restaurant(id, kakaoPlaceId, name, roadAddress, address, longitude, latitude, placeUrl, mentions); }
 }

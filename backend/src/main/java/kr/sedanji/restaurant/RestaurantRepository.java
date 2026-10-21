@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.*;
 
 public interface RestaurantRepository extends JpaRepository<RestaurantEntity, Long> {
     Optional<RestaurantEntity> findByKakaoPlaceId(String id);
-    @Query("select r from RestaurantEntity r where exists (select m.id from MentionEntity m where m.restaurant = r and m.status = 'APPROVED') order by r.id")
+    @Query("select r from RestaurantEntity r where exists (select m.id from MentionEntity m where m.restaurant = r and m.verificationStatus = 'APPROVED') order by r.id")
     List<RestaurantEntity> findPublished();
 
     // PostgreSQL atomic upsert preserves one place even when different mentions are approved concurrently.
