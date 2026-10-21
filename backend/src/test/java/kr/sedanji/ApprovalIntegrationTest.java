@@ -2,12 +2,20 @@ package kr.sedanji;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import jakarta.persistence.EntityManager;
+import kr.sedanji.mention.PlaceCandidateId;
+import kr.sedanji.mention.PlaceCandidateRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,10 +31,21 @@ import static kr.sedanji.Models.*;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
+@Testcontainers
 class ApprovalIntegrationTest {
+    @Container
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
     @Autowired MockMvc mvc;
     @Autowired CatalogService service;
     @Autowired JdbcTemplate db;
+    @Autowired EntityManager entityManager;
+    @Autowired PlaceCandidateRepository placeCandidates;
     @MockitoBean ExternalApis apis;
     private final String id = "RMTJPFKRbEk";
     private final Place place = new Place("1158460117", "뽀요베리", "서울 마포구 월드컵로13길 55-15", "서울 마포구 망원동 57-302", 126.90687068921198, 37.55461513602502, "http://place.map.kakao.com/1158460117");
@@ -95,6 +114,26 @@ class ApprovalIntegrationTest {
         service.approve(second, chef, place.id(), "추가 근거 확인", "admin");
         assertThat(service.restaurants()).hasSize(1);
         assertThat(service.restaurants().get(0).mentions()).hasSize(2);
+    }
+    @Test void approvedRelationshipsReloadWithoutOpenSessionInView() {
+        long mention = prepared(), chef = service.createChef("윤남노").id();
+        service.approve(mention, chef, place.id(), "출처 확인", "admin");
+        entityManager.flush();
+        entityManager.clear();
+        var published = service.restaurants();
+        assertThat(published).hasSize(1);
+        assertThat(published.get(0).mentions().get(0).chefName()).isEqualTo("윤남노");
+        assertThat(service.mentions().get(0).status()).isEqualTo("APPROVED");
+    }
+    @Test void repeatedSearchReplacesSnapshotsWithoutStaleJpaEntities() {
+        long mention = prepared();
+        Place replacement = new Place("999", "다른 후보", "서울 다른 주소", "서울 다른 지번", 127.0, 37.5, "http://place.map.kakao.com/999");
+        when(apis.places(anyString())).thenReturn(new PlaceSearch(List.of(replacement), 1, true));
+        service.search(mention, "다른 후보");
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(placeCandidates.findById(new PlaceCandidateId(mention, place.id()))).isEmpty();
+        assertThat(placeCandidates.findById(new PlaceCandidateId(mention, replacement.id()))).isPresent();
     }
     @Test void manualEvidenceMustExistInOfficialDescription() {
         imported();
