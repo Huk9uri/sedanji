@@ -3,3 +3,8 @@
 !.env.example
 __pycache__/
 results/
+node_modules/
+dist/
+target/
+.tools/
+*.log
