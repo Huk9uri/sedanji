@@ -2,7 +2,7 @@ param([switch]$Test, [switch]$Package)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $projectRoot '.env'
-if (Test-Path -LiteralPath $envPath) {
+if (-not $Test -and (Test-Path -LiteralPath $envPath)) {
     foreach ($line in Get-Content -LiteralPath $envPath -Encoding utf8) {
         if ($line -match '^\s*([A-Z][A-Z0-9_]*)\s*=(.*)$') {
             $variableName = $Matches[1]
@@ -15,9 +15,9 @@ if (Test-Path -LiteralPath $envPath) {
 }
 Push-Location (Join-Path $projectRoot 'backend')
 try {
-    $localRepository = '-Dmaven.repo.local=' + (Join-Path $projectRoot '.tools\m2')
-    if ($Test) { & mvn.cmd -B $localRepository test }
-    elseif ($Package) { & mvn.cmd -B $localRepository package -DskipTests }
-    else { & mvn.cmd $localRepository spring-boot:run }
+    $gradleHome = Join-Path $projectRoot '.tools\gradle-home'
+    if ($Test) { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon test }
+    elseif ($Package) { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon bootJar }
+    else { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon bootRun }
     exit $LASTEXITCODE
 } finally { Pop-Location }
