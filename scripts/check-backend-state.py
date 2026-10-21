@@ -35,7 +35,7 @@ def main():
     try:
         call('/login', {'username': settings.get('ADMIN_USERNAME', 'admin'), 'password': settings['ADMIN_PASSWORD']})
         state = {name: call(path) for name, path in {
-            'videos': '/admin/videos', 'mentions': '/admin/mentions',
+            'videos': '/admin/videos', 'candidates': '/admin/candidates', 'mentions': '/admin/mentions',
             'chefs': '/admin/chefs', 'restaurants': '/restaurants'}.items()}
         call('/logout', {})
         if args.compare and state != json.loads(args.compare.read_text(encoding='utf-8')):

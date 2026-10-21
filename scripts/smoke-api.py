@@ -1,4 +1,4 @@
-"""Local development smoke check. Imports evidence as PENDING, never approves."""
+"""Local development smoke check. Imports OPEN candidates, never creates a Mention."""
 import http.cookiejar
 import json
 from pathlib import Path
@@ -39,16 +39,17 @@ def main():
             ids += [item['videoId'] for item in json.loads(sample_path.read_text(encoding='utf-8'))]
         for video_id in ids:
             call('/admin/videos', {'url': 'https://www.youtube.com/watch?v=' + video_id})
-        mentions = call('/admin/mentions')
+        candidates = call('/admin/candidates')
         searches = []
-        for mention in mentions:
-            if mention['status'] == 'PENDING':
-                result = call('/admin/mentions/' + str(mention['id']) + '/places', {'query': mention['extractedName']})
-                searches.append({'name': mention['extractedName'], 'count': len(result['candidates']), 'complete': result['complete']})
+        for candidate in candidates:
+            if candidate['disposition'] == 'OPEN':
+                result = call('/admin/candidates/' + str(candidate['id']) + '/places', {'query': candidate['extractedName']})
+                searches.append({'name': candidate['extractedName'], 'count': len(result['candidates']), 'complete': result['complete']})
         public_after = call('/restaurants')
         assert public_before == public_after, 'Import must not publish restaurants'
         report = {'session_login': True, 'imported_video_count': len(call('/admin/videos')),
-                  'mentions': [{'name': m['extractedName'], 'address': m['extractedAddress'], 'status': m['status']} for m in mentions],
+                  'candidates': [{'name': c['extractedName'], 'address': c['extractedAddress'], 'disposition': c['disposition']} for c in candidates],
+                  'mention_count': len(call('/admin/mentions')),
                   'searches': searches, 'published_count': len(public_after), 'no_automatic_approval': True}
         (root / 'results/api-smoke.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
