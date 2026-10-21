@@ -13,5 +13,7 @@ export async function api(path, { method = 'GET', body, form } = {}) {
     try { message = (await response.json()).message || message; } catch { /* Empty security response. */ }
     throw new Error(message);
   }
-  return response.status === 204 ? null : response.json();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text.trim() ? JSON.parse(text) : null;
 }
