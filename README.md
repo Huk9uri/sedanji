@@ -4,14 +4,14 @@ YouTube 설명란의 식당 후보를 관리자가 검토하고, 승인한 장�
 
 ## 구성
 
-- `backend/`: Java 17, Spring Boot 3.5.16, Spring Security, JDBC, Flyway
+- `backend/`: Java 17, Spring Boot 3.5.16, Spring Security, Spring Data JPA, Flyway, Gradle Wrapper
 - `compose.yaml`: PostgreSQL 17, 로컬 포트 55432, 영속 볼륨
 - `frontend/`: React 19, Vite, Kakao Maps Web SDK
 - 루트 Python 스크립트: 기존 YouTube/Kakao PoC와 추가 영상 검증
 
 ## 로컬 실행
 
-필수 도구: JDK 17, Maven 3.6.3 이상, Node.js 20.19 이상, Docker Desktop. 프로젝트 루트 `.env`에 `.env.example`의 변수를 설정한다. 기존 키를 유지하면서 항목을 추가한다. `POSTGRES_PASSWORD`와 `ADMIN_PASSWORD`는 `CHANGE_ME`를 사용하지 않고, 관리자 비밀번호는 16자 이상으로 지정한다. 현재 작업 환경의 로컬 개발용 비밀번호는 `.env`에 생성해 두었다. 값은 로그·문서·Git에 기록하지 않는다.
+필수 도구: JDK 17, Node.js 20.19 이상, Docker Desktop. Gradle 8.14.3은 Wrapper가 공식 배포본을 내려받아 SHA-256을 검증하므로 별도 설치하지 않는다. 프로젝트 루트 `.env`에 `.env.example`의 변수를 설정한다. 기존 키를 유지하면서 항목을 추가한다. `POSTGRES_PASSWORD`와 `ADMIN_PASSWORD`는 `CHANGE_ME`를 사용하지 않고, 관리자 비밀번호는 16자 이상으로 지정한다. 현재 작업 환경의 로컬 개발용 비밀번호는 `.env`에 생성해 두었다. 값은 로그·문서·Git에 기록하지 않는다.
 
 ```powershell
 # 터미널 1: PostgreSQL
@@ -77,10 +77,7 @@ npm run dev
 # 기존 PoC 30개 (실제 API 호출 없음)
 python -m unittest -v
 
-# 최초 1회, 별도 테스트 DB 생성
-docker compose exec -T db psql -U sedanji -d postgres -c 'CREATE DATABASE sedanji_test;'
-
-# 실제 PostgreSQL 테스트 DB 사용, 외부 API는 모의 응답
+# Docker 실행 필요. Testcontainers가 임시 PostgreSQL을 생성하며 .env 불필요
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-backend.ps1 -Test
 
 # React 로직 및 지도 좌표 전달 테스트
@@ -89,7 +86,9 @@ npm test
 npm run build
 ```
 
-백엔드 통합 테스트는 `sedanji_test`에 Flyway 마이그레이션을 적용하고 테스트별 트랜잭션을 롤백한다. `TEST_DATABASE_URL`로 별도 테스트 DB를 지정할 수 있다. 운영 DB를 테스트 대상으로 지정하지 않는다.
+백엔드 통합 테스트는 Testcontainers가 임의 포트의 전용 PostgreSQL을 생성하고 Flyway 마이그레이션을 적용한다. 개발 DB와 이전 `sedanji_test`를 사용하지 않는다. Docker가 없으면 테스트를 건너뛰지 않고 실패한다. JPA는 `ddl-auto=validate`, `open-in-view=false`이며 스키마를 변경하지 않는다. 테스트 스크립트는 `.env`를 로드하지 않고 외부 API는 모의 응답으로 대체한다.
+
+직접 실행하려면 `backend`에서 `.\gradlew.bat test` 또는 `./gradlew test`를 사용한다. 실행 JAR 생성은 `.\gradlew.bat bootJar`다. `.\gradlew.bat bootRun`은 실행 환경에 앱 변수를 직접 설정해야 하므로, 로컬 `.env`를 쓰는 경우 루트의 `scripts/start-backend.ps1`을 사용한다.
 
 `python scripts/smoke-api.py`는 실행 중인 로컬 서버에 로그인해 샘플 영상을 실제 공식 API로 가져오고 장소 후보를 검색하는 개발용 검증이다. 로컬 DB에 PENDING 데이터를 저장하며 **승인하지 않는다**. 원본 영상과 `results/additional_videos.json`의 추가 영상이 대상이고 결과는 `results/api-smoke.json`이다.
 
@@ -99,6 +98,7 @@ npm run build
 - [Kakao 실제 매칭 결과와 PoC 테스트 30개](docs/POC_KAKAO_LOCAL.md)
 - [추가 영상 5개에서 확인한 추출 한계](docs/VIDEO_DESCRIPTION_VALIDATION.md)
 - [첫 기능 구현·검증 결과](docs/FIRST_FEATURE.md)
+- [Gradle·JPA·Testcontainers 전환 결과](docs/BACKEND_TRANSITION.md)
 
 외부 배포 전에는 HTTPS 및 Secure 쿠키, 별도 관리자 계정 저장소, 비밀번호 정책·로그인 시도 제한, API 사용량 제어·보관 기간 정책을 별도로 구성해야 한다. 현재 구현은 로컬 첫 기능 검증 범위다. 커밋과 푸시는 사용자 승인 후에만 수행하며, 커밋 메시지는 영어 접두어와 한국어 본문을 사용한다.
 
