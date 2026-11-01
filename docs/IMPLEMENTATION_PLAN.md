@@ -2,6 +2,10 @@
 
 작성일: 2026-10-22. 이번 요청부터 루트 AGENTS.md를 개발 기준으로 적용한다.
 
+## 최신 제품 방향에 따른 후속 계획 — 2026-11-02
+
+아래 단계와 결과는 기존 PoC·기반 전환의 이력이다. 현재 제품 범위와 개발 순서는 [최신 요구사항](REQUIREMENTS.md)을 우선한다. 사용자 앱은 React Native이며 기존 사용자 웹 화면을 그대로 제품으로 확장하지 않는다. 첫 단계인 관리자 식당 관리의 코드 점검 결과와 구현 순서는 [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md)에 정리했다. 해당 계획 작성 시 실행 코드·DB 변경이나 신규 테스트 수행은 없었다.
+
 ## 전환 전 상태와 차이
 
 기존 코드는 동작을 검증한 초기 구현이다. Maven / Spring JDBC / JavaScript를 사용하고 있어 지침의 Gradle / Spring Data JPA / TypeScript와 차이가 있다. 프론트엔드의 Tailwind CSS, shadcn/ui, TanStack Query, React Router와 백엔드의 Testcontainers도 아직 적용하지 않았다.
