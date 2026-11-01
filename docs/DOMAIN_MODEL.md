@@ -1,161 +1,217 @@
-# 세단지 도메인 설계 — 1단계
+# 세단지 도메인 설계
 
-작성일: 2026-10-22. 기준: 루트 `AGENTS.md` 5~8절.
+갱신일: 2026-11-02. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
-이 문서는 목표 모델이다. 최초 작성 단계에서는 DB를 변경하지 않았으며, 아래 구현 현황과 구분한다.
+이 문서는 관리자 1단계의 **구현 대상 설계**다. 아래 신규 모델·필드·제약은 아직 DB나 실행 코드에 적용되지 않았다. 실제 구현은 V2의 후보·관계 분리까지이며 [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다. 과거 DB 건수를 현재 상태로 가정하지 않는다.
 
-## 구현 현황 — 후보와 관계 분리 반영
+## 설계 범위
 
-2026-10-22 V2에서 RestaurantCandidate와 Mention을 실제 테이블·엔티티·API로 분리했다. PlaceCandidate는 추출 후보에 연결하며, 한 후보에서 여러 셰프의 Mention을 생성할 수 있다. Mention의 셰프·식당·영상 필수 조건, 언급 유형·시점·검증 상태·AdminUser 검토자 FK를 반영했다. 후보의 성공한 수집 출처를 연결하기 위한 ImportJob과 DB 기반 관리자도 추가했다.
+직접 등록·임시 저장·승인, 목록·상세, 정정·공개 중단·복구를 설계한다. 일반 사용자·저장·Submission 테이블은 후속 단계에서 설계한다. 제보 연결은 향후 원본 제보를 보존한 별도 FK로 확장하며 RestaurantCandidate를 사용자 제보로 재사용하지 않는다.
 
-기존 개발 DB에는 승인된 관계가 없어 후보 3개를 이관했다. 기존 승인 데이터가 있는 다른 환경은 유형을 추정하거나 비공개로 바꾸지 않고 마이그레이션을 중단한다. [분리·검증 기록](CANDIDATE_MENTION_SEPARATION.md).
+핵심 구분은 다음과 같다.
 
-아래 ERD의 모든 후속 요구가 완료된 것은 아니다. ImportJob의 실패·재시도 수명주기, 관계 초안·승인 취소 UI, 동명이인 셰프 등록, 기본 정보의 추가 필드와 정밀도 정리는 후속 범위다.
+- Restaurant: 검증된 실제 장소. 존재 자체는 공개 승인이 아니다.
+- MentionDraft: 식당만 선택된 미완성 작성 자료와 기존 관계의 정정안.
+- Mention: 셰프·식당·출처 영상이 모두 있는 실제 근거 관계.
+- RestaurantRevision / ChefRevision: 공유 기본 정보의 미승인 정정안.
+- AdminAuditEvent: 승인·정정·공개 제어의 변경 이력.
+- 기존 ImportJob·RestaurantCandidate·PlaceCandidate: 설명란 추출 검증 자료. 직접 등록의 필수 선행 자료가 아니다.
 
-## 관계 ERD
+## 관리자 등록·운영 ERD
 
 ```mermaid
 erDiagram
-    VIDEO ||--o{ IMPORT_JOB : has
-    IMPORT_JOB ||--o{ RESTAURANT_CANDIDATE : extracts
-    RESTAURANT_CANDIDATE ||--o{ PLACE_CANDIDATE : finds
-    RESTAURANT_CANDIDATE ||--o{ MENTION : supports
-    CHEF ||--o{ MENTION : is_subject_of
-    RESTAURANT ||--o{ MENTION : is_place_of
-    VIDEO ||--o{ MENTION : is_source_of
-    ADMIN_USER o|--o{ MENTION : reviews
+    RESTAURANT ||--o{ MENTION : identifies
+    CHEF ||--o{ MENTION : introduces
+    VIDEO ||--o{ MENTION : supports
+    RESTAURANT_CANDIDATE o|--o{ MENTION : originated
+    RESTAURANT ||--o{ MENTION_DRAFT : anchors
+    CHEF o|--o{ MENTION_DRAFT : selects
+    VIDEO o|--o{ MENTION_DRAFT : cites
+    MENTION o|--o{ MENTION_DRAFT : revises
+    RESTAURANT ||--o{ RESTAURANT_REVISION : stages
+    CHEF ||--o{ CHEF_REVISION : stages
+    ADMIN_USER ||--o{ MENTION_DRAFT : writes
+    ADMIN_USER ||--o{ RESTAURANT_REVISION : writes
+    ADMIN_USER ||--o{ CHEF_REVISION : writes
+    ADMIN_USER ||--o{ ADMIN_AUDIT_EVENT : performs
+    MENTION o|--o{ ADMIN_AUDIT_EVENT : logs
+    MENTION_DRAFT o|--o{ ADMIN_AUDIT_EVENT : logs
+    RESTAURANT o|--o{ ADMIN_AUDIT_EVENT : logs
+    CHEF o|--o{ ADMIN_AUDIT_EVENT : logs
 
-    CHEF {
-        bigint id PK
-        varchar name
-        timestamptz created_at
-    }
     RESTAURANT {
         bigint id PK
         varchar kakao_place_id UK
-        varchar name
-        text road_address
-        text address
-        decimal longitude
-        decimal latitude
-    }
-    VIDEO {
-        varchar youtube_video_id PK
-        text title
-        varchar channel_id
-        text channel_title
-        timestamptz published_at
-        text description
-        timestamptz fetched_at
-    }
-    IMPORT_JOB {
-        bigint id PK
-        varchar video_id FK
-        varchar status
-        varchar error_code
-        timestamptz started_at
-        timestamptz finished_at
-    }
-    RESTAURANT_CANDIDATE {
-        bigint id PK
-        bigint import_job_id FK
-        text extracted_name
-        text extracted_address
-        integer source_line
-        text evidence
-        varchar match_status
-        varchar matching_error_code
-        varchar disposition
-    }
-    PLACE_CANDIDATE {
-        bigint id PK
-        bigint restaurant_candidate_id FK
-        varchar kakao_place_id
         text name
         text road_address
         text address
-        decimal longitude
-        decimal latitude
-        text place_url
-        timestamptz fetched_at
+        double longitude
+        double latitude
+        bigint version
+        timestamptz created_at
+    }
+    CHEF {
+        bigint id PK
+        varchar name
+        bigint version
+        timestamptz created_at
+    }
+    VIDEO {
+        varchar id PK
+        text title
+        text channel_title
+        timestamptz published_at
+        text description
+        varchar source_check_status
+        timestamptz source_checked_at
     }
     MENTION {
         bigint id PK
-        bigint chef_id FK
         bigint restaurant_id FK
+        bigint chef_id FK
         varchar video_id FK
         bigint restaurant_candidate_id FK
         varchar mention_type
         integer timestamp_seconds
         varchar verification_status
-        text evidence
+        varchar publication_status
         text review_note
         bigint reviewed_by FK
         timestamptz reviewed_at
+        bigint version
     }
-    ADMIN_USER {
+    MENTION_DRAFT {
         bigint id PK
-        varchar username UK
-        varchar password_hash
-        boolean enabled
+        bigint restaurant_id FK
+        bigint chef_id FK
+        varchar video_id FK
+        bigint target_mention_id FK
+        bigint candidate_id FK
+        varchar kind
+        varchar status
+        varchar mention_type
+        integer timestamp_seconds
+        text verification_note
+        text change_reason
+        bigint base_version
+        bigint version
+        bigint created_by FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    RESTAURANT_REVISION {
+        bigint id PK
+        bigint restaurant_id FK
+        jsonb proposed_place
+        text change_reason
+        bigint base_version
+        bigint version
+        varchar status
+    }
+    CHEF_REVISION {
+        bigint id PK
+        bigint chef_id FK
+        varchar proposed_name
+        text change_reason
+        bigint base_version
+        bigint version
+        varchar status
+    }
+    ADMIN_AUDIT_EVENT {
+        bigint id PK
+        bigint actor_id FK
+        bigint mention_id FK
+        bigint draft_id FK
+        bigint restaurant_id FK
+        bigint chef_id FK
+        varchar action
+        jsonb before_value
+        jsonb after_value
+        text reason
+        timestamptz occurred_at
     }
 ```
 
-PlaceCandidate는 Kakao 검색 결과 스냅샷을 담는 보조 모델이다. 설명란에서 추출한 후보인 RestaurantCandidate와 구분한다.
+ERD는 주요 필드를 표시한다. RestaurantRevision·ChefRevision에도 작성자·수정자 AdminUser FK와 생성·수정 시각을 둔다. 모든 엔티티의 전체 DDL을 나타내지는 않는다.
 
-## 필드와 제약조건
+## 필드·제약
 
-| 모델 | 필수 조건과 설계 방침 |
+| 모델 | 제약과 처리 |
 | --- | --- |
-| Chef | 이름 필수. 동명이인을 고려해 이름만으로 UNIQUE를 걸지 않는다. 등록 시 기존 셰프를 보여주고 관리자가 동일인 여부를 판단한다 |
-| Restaurant | Kakao Place ID는 NOT NULL / UNIQUE. 이름 필수. 미제공 주소는 NULL. 경도는 -180~180, 위도는 -90~90의 유한값. 카카오맵 URL은 검증된 ID에서 생성할 수 있다 |
-| Video | 11자리 YouTube videoId가 PK. 영상 URL은 ID에서 생성한다. 채널 ID와 표시명을 저장하며 Chef와 자동 연결하지 않는다. 빈 설명란도 정상 조회 결과로 보관한다 |
-| ImportJob | 대상 Video가 확인된 뒤 생성. 상태는 PENDING / RUNNING / SUCCEEDED / FAILED. 시작·종료 시각과 안전한 오류 분류를 보관한다. 초기에는 동기 처리하며 별도 큐를 도입하지 않는다 |
-| RestaurantCandidate | 설명란 근거와 추출 위치를 보관한다. 주소 불명은 NULL. 자동 추출은 source_line >= 1, 수동 추가는 NULL. import_job_id에 인덱스. 수동 근거는 저장된 설명란과 대조한다 |
-| PlaceCandidate | (restaurant_candidate_id, kakao_place_id)는 UNIQUE. 클라이언트의 임의 좌표 대신 공식 API의 검증된 스냅샷을 사용한다 |
-| Mention | Chef / Restaurant / Video는 NOT NULL. 후보에서 생성했다면 restaurant_candidate_id를 보관한다. 같은 후보가 여러 셰프의 근거일 수 있어 후보와는 1:N 관계. 출처·셰프·장소·언급 유형 조합에 UNIQUE를 걸어 중복 승인을 막는다 |
-| AdminUser | username은 UNIQUE. 평문 비밀번호 대신 BCrypt 해시와 enabled를 저장한다. 최초 관리자는 환경변수로 명시적으로 생성하며 기존 비밀번호를 재시작마다 덮어쓰지 않는다 |
+| Restaurant | Kakao Place ID NOT NULL/UNIQUE. 이름 필수. 주소 미제공은 NULL 허용, 두 주소 모두 없어도 API의 검증된 장소 식별을 임의 보완하지 않는다. 경도·위도는 유한값 및 각 범위 검사. 장소 URL은 검증된 ID에서 생성. created_at과 낙관적 잠금 version 추가 |
+| Chef | 공백 아닌 이름 최대 100자. 이름 UNIQUE 제거. 이름 검색은 복수 결과를 반환하며 신규 생성은 명시적으로 수행. 이름이 같다고 기존 계정처럼 자동 재사용하지 않음 |
+| Video | 11자리 videoId PK, 제목·채널·게시일·설명란 보존. 기존 영상이면 재사용하고 직접 등록에서는 설명란 추출을 자동 실행하지 않음. 채널명으로 Chef를 추정하지 않음 |
+| Mention | 식당·셰프·영상 NOT NULL/FK. UNIQUE(chef_id, restaurant_id, video_id): 유형·시점·공개 상태와 무관. candidate FK는 선택. version 추가 |
+| MentionDraft | 식당·작성자 필수, 셰프·영상·유형·시점·검증 메모 선택. CREATE는 target_mention_id/base_version 없음. CORRECTION은 대상 관계와 base_version 필수. 완료한 초안은 덮어쓰지 않음 |
+| RestaurantRevision | 식당 FK, 현재 version, 정정 사유 필수. 공식 장소 조회에서 얻은 proposed_place 스냅샷만 허용. Kakao Place ID 자체를 변경하지 않음 |
+| ChefRevision | 셰프 FK, 현재 version, 정정 사유·수정 이름 필수. 이름을 바꿔도 동일인 식별자는 유지하며 다른 셰프와 병합하지 않음 |
+| AdminAuditEvent | actor·action·occurred_at 필수. 대상 식당/셰프/관계/초안 FK 중 하나 이상 필수. 실제 작업 대상 FK와 전후 스냅샷을 남김. 관리자 전용·추가 전용, 일반 API로 수정/삭제하지 않음 |
 
-## 독립적으로 관리할 상태
+MentionDraft·Revision은 status=DRAFT에서만 수정 가능하다. 대상별 미완료 CORRECTION/Revision은 하나만 허용하는 부분 유일 인덱스를 둔다. CREATE 초안 여러 개가 같은 조합을 담더라도 최종 Mention의 3항목 UNIQUE와 승인 트랜잭션으로 중복 승인을 막는다. 초안 상태는 DRAFT / APPLIED다. 사용자용 상태 문구가 아니며 별도 반려·폐기 화면을 추가하지 않는다.
 
-### 장소 식별
+명시적 저장 전 장소 선택은 서버 세션의 임시 검색 결과를 참조한다. Kakao 검색만으로 Restaurant·MentionDraft를 생성하지 않는다. 최초 임시 저장 또는 승인 시 해당 장소를 원자적으로 조회/생성한다. 동일 Kakao ID의 기존 Restaurant은 그대로 사용하고 이름·주소를 upsert로 덮어쓰지 않는다.
 
-RestaurantCandidate.match_status는 MATCHED / REVIEW_REQUIRED / NOT_FOUND다. 미실행 또는 실패로 결과가 없다면 NULL로 두고 matching_error_code를 별도로 보관한다.
+RestaurantRevision은 잘못된 주소 등의 공유 장소 정보 정정을 위한 모델이다. 대상 지점 자체를 잘못 선택했다면 기존 Restaurant의 Kakao ID를 바꾸지 않고 관계 정정안의 restaurant_id를 올바른 기존/새 장소로 변경한다. 다른 승인 관계의 지점을 함께 바꾸지 않는다.
 
-- MATCHED: 이름과 상세 주소가 충분히 일치하고 유력 후보가 유일하다. 후보 목록 조회 완료도 필요하다.
-- REVIEW_REQUIRED: 검색은 성공했지만 주소 부재·비교 불가·복수 후보 등으로 검토가 필요하다.
-- NOT_FOUND: 정상 검색이 완료됐고 후보가 0개다.
-- API 실패: NOT_FOUND로 바꾸지 않는다. 이전 성공 결과가 있다면 조회 시각과 함께 보존하고 재검색 실패를 별도로 표시한다.
+공유 셰프·식당 정보도 승인 전에는 기존 값을 유지한다. 각 Revision은 필드별 허용 목록으로 검증하고 JSON을 엔티티에 임의 병합하지 않는다. 원본 영상 메타데이터는 관리자 자유 편집 대상이 아니며 새 출처는 올바른 영상으로 관계 정정한다.
 
-disposition은 OPEN / RESOLVED / DISMISSED이며 후보 처리 상황만 나타낸다. RESOLVED 자체는 공개 조건이 아니다.
+## 근거·메모·시점
 
-### 셰프와 식당의 관계
+새 등록의 승인 필수값은 식당·셰프·출처 영상·관계 유형이다. 시점과 검증 메모는 선택이며 별도의 필수 자유 입력 evidence를 UI나 API에 추가하지 않는다. 관리자는 실제 근거를 확인하고 명시적으로 승인하며 서버는 승인자·시각을 기록한다.
 
-Mention.verification_status는 PENDING / APPROVED / REJECTED다. APPROVED만 공개한다.
+기존 Mention.evidence와 review_note, 후보 설명란 원문은 삭제하거나 합치지 않고 이관한다. evidence는 신규 직접 등록에서 NULL 허용하는 과거 근거 보존 필드로 두고, review_note를 선택 검증 메모로 사용한다. 원본 설명란은 Video와 후보 자료에 남긴다. 정정 이력의 사유와 공개 중단·복구 사유는 선택 검증 메모와 별개다.
 
-mention_type은 REGULAR / RECOMMENDED / VISITED / MENTIONED다. PENDING 초안에서는 미확정(NULL)을 허용한다. 승인할 때 관리자가 근거에 따라 유형을 명시한다. 이름·주소만으로 어떤 유형도 확정하지 않는다. 장소 식별 성공을 셰프의 단순 언급 사실을 확인한 근거로도 사용하지 않는다.
+timestamp_seconds는 NULL 또는 0 이상의 정수다. NULL은 미확인, 0은 확인된 0초다. UI의 분:초/시:분:초를 API 경계에서 정수로 변환하고 초·중간 분 구성값은 0~59, 분:초의 첫 분 값은 0 이상으로 검사한다. 정수 범위 초과와 음수는 거부한다. 현재 조회 가능한 영상 길이를 확보하지 않으므로 길이 검증을 완료했다고 표현하지 않는다.
 
-timestamp_seconds는 확인된 경우에만 0 이상의 정수로 저장한다. 미확인은 NULL이며 0초와 구분한다. 설명란에 시점이 없으면 추측하지 않는다.
+## 상태와 공개 조건
 
-APPROVED에서는 mention_type, reviewed_by, reviewed_at, 공백이 아닌 review_note와 evidence를 필수로 한다. CHECK 제약과 서비스에서 함께 검증한다. UNIQUE 제약과 낙관적 잠금 또는 행 잠금으로 중복·동시 승인을 막는다.
+### 작성·검증·공개를 분리
 
-## 승인 트랜잭션
+| 대상 | 현재 | 작업 | 결과 |
+| --- | --- | --- | --- |
+| CREATE 초안 | 없음 | 식당 선택 후 명시적 임시 저장 | DRAFT, Mention 없음 |
+| CREATE 초안 | DRAFT | 수정 저장 | DRAFT, version 증가 |
+| CREATE 초안 | DRAFT | 필수값·근거 확인 후 승인 | 초안 APPLIED, Mention APPROVED/PUBLISHED |
+| 관계 | APPROVED/PUBLISHED | 정정안 저장 | 원본 그대로, CORRECTION DRAFT |
+| 관계 정정안 | DRAFT | 재승인 | 원본 변경·version 증가, 초안 APPLIED. 원본이 SUSPENDED면 중단 상태 유지 |
+| 관계 | APPROVED/PUBLISHED | 공개 중단 | APPROVED/SUSPENDED, 사유·이력 기록 |
+| 관계 | APPROVED/SUSPENDED | 근거 재확인·사유 입력 후 복구 승인 | APPROVED/PUBLISHED |
+| 기본 정보 정정안 | DRAFT | 재승인 | Restaurant/Chef 값·version 갱신, Revision APPLIED |
 
-1. 후보를 잠그고 처리 상태와 선택한 장소가 해당 후보에 속하는지 검사한다.
-2. 셰프·출처·언급 유형·근거·장소 확인 내용을 검사한다. MATCHED를 추천 사실 확인으로 대신하지 않는다.
-3. Kakao ID로 Restaurant을 조회하거나 생성한다.
-4. Mention을 APPROVED로 생성하고 검토자·시각·메모를 저장한다. 후보 처리 상태도 같은 트랜잭션에서 갱신한다.
-5. 공개 API는 APPROVED Mention에 연결된 식당·셰프·영상만 반환한다. 내부 후보와 검토 메모는 제외한다.
+Mention.verification_status는 기존 PENDING / APPROVED / REJECTED를 유지한다. 새 관리자 작성 중 자료는 MentionDraft에 보관한다. 기존 PENDING/REJECTED Mention이 발견돼도 임의 승인하거나 삭제하지 않는다. publication_status는 PUBLISHED / SUSPENDED다. 신규 승인 관계만 PUBLISHED로 만들고 검증 미승인 관계는 SUSPENDED로 둔다.
 
-주소 없는 후보 등을 수동 확인했다면 장소 선택 이유를 메모로 남긴다. 자동 매칭 상태를 임의로 MATCHED로 바꾸지 않는다. 영상 속 관계 확인은 관리자가 수행하며, 시스템이 영상 내용을 확인했다고 표현하지 않는다.
+공개 가능한 관계 = verification_status=APPROVED AND publication_status=PUBLISHED. APPROVED에는 유형·승인자·승인 시각을 DB CHECK로 요구하고 메모 필수 CHECK는 제거한다. PUBLISHED이면 반드시 APPROVED여야 한다. 이 조건을 공개 식당·상세·셰프 필터·클러스터·추후 저장 목록에 동일하게 사용한다.
 
-## 마이그레이션과 삭제
+공개 가능한 관계가 하나 이상인 식당만 공개한다. 식당·관계를 물리 삭제하지 않고 공개 중단은 관계 단위로 처리한다. 다른 관계는 유지한다. 사용자에게 내부 수정·중단 상태나 메모를 노출하지 않는다.
 
-- 적용된 `V1__initial_schema.sql`은 수정하지 않는다. 후속 Flyway 파일로 단계적으로 전환한다.
-- 현재 mentions에 섞인 미승인 추출 후보는 RestaurantCandidate로 옮긴다. 전환 후 Mention은 Chef / Restaurant / Video의 실제 근거 관계를 나타낸다.
-- 기존 승인 데이터에 언급 유형이 없다면 추정하지 않는다. 재검증이 필요하며, 전환 전에 현재 DB 상태를 확인하고 처리 방침을 확정한다.
-- 자동으로 공개 승인을 생성하지 않는다. 삭제·비공개 전환 등 영향이 있다면 대상 건수와 전환 내용을 먼저 제시한다.
-- 근거와 검토 이력을 보존하도록 참조 중인 Chef / Restaurant / Video / AdminUser의 물리 삭제는 RESTRICT로 막는다. 관리자는 enabled로 비활성화한다.
-- ImportJob 실패 시 확인된 영상·후보를 삭제하지 않는다. 재시도에서도 같은 영상이 중복 생성되지 않도록 한다.
+복구는 내용 저장이나 정정 승인과 별도의 명시적 승인 작업이다. 최신 값과 version을 확인하고 사유·처리자·시각을 남긴다. 초안이 생성된 뒤 원본이 정정·중단·복구되어 version이 달라지면 STALE_VERSION 충돌로 재확인을 요구하고 자동 덮어쓰지 않는다.
 
-분리 범위의 SQL·JPA 매핑·마이그레이션 테스트는 V2와 함께 추가했다. 나머지 목표 모델 차이는 구현 현황에 명시한 후속 범위로 남긴다.
+### 영상 접근 상태
+
+Video.source_check_status는 UNCHECKED / AVAILABLE / REVIEW_REQUIRED로 둔다. 실패·재확인 사유 코드와 확인 시각을 별도 저장한다. 응답이 없다는 사실만으로 삭제와 비공개를 확정하지 않는다. 네트워크·할당량 오류도 확정된 삭제로 기록하지 않는다.
+
+영상 접근 불가는 승인 관계를 자동 중단하지 않는다. 관리자 확인 필요와 사용자 플레이어 재생 불가 안내를 분리한다. 확인은 명시적 관리자 재확인 동작부터 제공하며 주기적 배치는 이번에 도입하지 않는다. 메타데이터가 조회된다고 임베드 재생 가능까지 보장하지 않는다. 사용자 플레이어 오류는 후속 모바일 단계에서 처리한다.
+
+### 기존 추출·매칭 모델
+
+ImportJob → RestaurantCandidate → PlaceCandidate의 근거·상태를 유지한다. match_status=MATCHED/REVIEW_REQUIRED/NOT_FOUND는 장소 비교 결과이며 승인 상태가 아니다. 미조회·실패는 별도 오류로 보관한다. disposition=OPEN/RESOLVED/DISMISSED도 관계 공개와 독립적이다. 직접 등록에서 미선택이면 자료 없이 중단하며, 사용자 제보에서의 보류는 후속 Submission에서 처리한다.
+
+## 트랜잭션·동시성
+
+1. 외부 조회는 짧은 DB 변경 트랜잭션 밖에서 수행한다. 검색 결과는 서버 세션에 임시 보관하고 인증 관리자에게 묶인 불투명 선택 토큰을 발급한다. 토큰 수명은 15분이며 만료 시 오류로 안내한다. Redis·새 검색 업무 테이블은 만들지 않는다.
+2. 임시 저장 시 토큰의 실제 장소를 조회하고 Kakao ID UNIQUE로 Restaurant을 조회/생성한다. 충돌 시 기존 식당을 재조회하며 기존 정보는 수정하지 않는다. 초안·이력 저장과 묶어 실패 시 롤백한다.
+3. 승인 시 초안/관계를 잠그고 기대 version·필수 FK·유형·관리자 활성 상태를 확인한다. 영상 조회 성공은 관계 검증을 대신하지 않는다.
+4. Mention의 3항목 UNIQUE를 최종 보장으로 사용한다. 중복이면 기존 관계 ID와 충돌을 관리자에게 반환하고 기존 값을 바꾸지 않는다. 같은 초안의 완료된 승인을 재시도하면 이미 적용된 결과를 반환한다.
+5. 정정 재승인은 대상·초안을 잠그고 base_version과 대상 version을 비교한다. 제안된 관계 조합이 다른 기존 관계와 충돌하면 실패하며 자동 병합하지 않는다. FK 변경 전후와 이전 승인본을 이력에 보존한다.
+6. 공개 중단·복구·수정안 적용과 감사 이력은 하나의 트랜잭션이다. 조회가 중간 상태를 보지 않도록 한다. 공유 정보 정정은 본인 version을 사용한다.
+
+최초 ‘승인·공개’는 아직 저장하지 않은 양식도 받을 수 있다. 서버가 동일 트랜잭션에서 초안 생성과 승인을 수행하며 필수값 검증에 실패하면 새로운 식당·초안·관계를 남기지 않는다. 요청 재전송은 관리자별 Idempotency-Key와 성공 결과 매핑으로 중복 생성을 막는다. 구체 보관 구현은 API 문서를 따른다.
+
+## 후속 마이그레이션 방침
+
+[마이그레이션 계획](ADMIN_MIGRATION_PLAN.md)을 따른다. 적용된 V1·V2와 legacy archive는 수정하지 않는다. 실제 적용 전 DB 상태·제약 이름·충돌·영향 건수를 읽기 전용으로 확인한다. 삭제·자동 병합·새 관계 자동 승인을 하지 않는다.
+
+FK 참조 중인 Chef·Restaurant·Video·AdminUser·이력 대상은 RESTRICT를 기본으로 한다. 관리자 비활성화는 enabled를 사용한다. 계정 삭제·개인정보 보관 정책은 후속 일반 사용자 설계에서 별도로 정한다.
+
+API 요청·응답·오류·페이지 계약은 [관리자 API 계약](ADMIN_API.md)을 따른다.
