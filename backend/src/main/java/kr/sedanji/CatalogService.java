@@ -21,16 +21,15 @@ class CatalogService {
     private final VideoService videos;
     private final MentionRepository mentions;
     private final RestaurantService restaurants;
-    private final RestaurantCandidateRepository candidates;
-    private final PlaceCandidateRepository places;
+    private final RestaurantCandidateService candidates;
     private final ImportJobRepository jobs;
     private final AdminUserRepository admins;
     private final DescriptionExtractor extractor;
     CatalogService(ChefService chefs, VideoService videos, MentionRepository mentions, RestaurantService restaurants,
-                   RestaurantCandidateRepository candidates, PlaceCandidateRepository places, ImportJobRepository jobs,
+                   RestaurantCandidateService candidates, ImportJobRepository jobs,
                    AdminUserRepository admins, DescriptionExtractor extractor) {
         this.chefs = chefs; this.videos = videos; this.mentions = mentions; this.restaurants = restaurants;
-        this.candidates = candidates; this.places = places; this.jobs = jobs; this.admins = admins; this.extractor = extractor;
+        this.candidates = candidates; this.jobs = jobs; this.admins = admins; this.extractor = extractor;
     }
     @Transactional public Video importVideo(String url) {
         String id = VideoUrl.parse(url);
@@ -40,46 +39,23 @@ class CatalogService {
         Video video = videos.fetchMetadata(id);
         var entity = videos.saveMetadata(video);
         var job = jobs.saveAndFlush(new ImportJobEntity(entity, started));
-        for (Extracted candidate : extractor.extract(video.description())) insertCandidate(job, candidate);
+        for (Extracted candidate : extractor.extract(video.description())) candidates.addExtractedCandidate(job, candidate);
         return entity.toDto();
     }
-    private void insertCandidate(ImportJobEntity job, Extracted value) {
-        Integer line = value.sourceLine() > 0 ? value.sourceLine() : null;
-        if (!candidates.existsByImportJobIdAndSourceLineAndExtractedName(job.getId(), line, value.name().strip()))
-            candidates.save(new RestaurantCandidateEntity(job, value));
-    }
-    @Transactional public void addCandidate(String videoId, String name, String address, String evidence) {
-        var video = videos.getRequired(videoId);
-        if (!video.getDescription().contains(evidence)) throw new IllegalArgumentException("근거는 저장된 설명란 원문에 포함되어야 합니다.");
-        var job = jobs.findFirstByVideoIdOrderByIdDesc(videoId).orElseThrow();
-        insertCandidate(job, new Extracted(name.strip(), address, 0, evidence));
-    }
-    public List<Candidate> candidates() { return candidates.findAllByOrderByIdDesc().stream().map(RestaurantCandidateEntity::toDto).toList(); }
     public List<Mention> mentions() { return mentions.findAllByOrderByIdDesc().stream().map(MentionEntity::toDto).toList(); }
-    private RestaurantCandidateEntity locked(long id) {
-        var candidate = candidates.findLocked(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "후보를 찾을 수 없습니다."));
-        if (candidate.getDisposition().equals("DISMISSED")) throw new ResponseStatusException(HttpStatus.CONFLICT, "제외된 후보입니다.");
-        return candidate;
-    }
     @Transactional public void approve(long id, long chefId, String placeId, MentionType type, Integer timestamp,
                                        String evidence, String note, String reviewer) {
         if (type == null || evidence == null || evidence.isBlank() || (timestamp != null && timestamp < 0))
             throw new IllegalArgumentException("언급 유형과 확인 근거를 입력하세요.");
-        var candidate = locked(id);
+        var candidate = candidates.getForUpdate(id);
         var chef = chefs.getRequired(chefId);
         var admin = admins.findByUsername(reviewer).filter(AdminUserEntity::isEnabled)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "활성 관리자만 승인할 수 있습니다."));
-        Place place = places.findByCandidateIdAndPlaceId(id, placeId)
-            .orElseThrow(() -> new IllegalArgumentException("이 후보에서 검색한 Kakao 장소를 선택하세요.")).toDto();
+        Place place = candidates.selectedPlace(id, placeId);
         var restaurant = restaurants.getOrCreate(place);
         if (mentions.existsByChefIdAndRestaurantIdAndVideoId(chefId, restaurant.getId(), candidate.getImportJob().getVideo().getId()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "같은 셰프·식당·영상의 관계가 이미 있습니다.");
         mentions.saveAndFlush(new MentionEntity(candidate, chef, restaurant, type, timestamp, evidence, note, admin));
-        candidate.resolve();
-    }
-    @Transactional public void dismiss(long id, String note) {
-        var candidate = locked(id);
-        if (!candidate.getDisposition().equals("OPEN")) throw new ResponseStatusException(HttpStatus.CONFLICT, "관계가 승인된 후보는 제외할 수 없습니다.");
-        candidate.dismiss(note);
+        candidates.resolveCandidate(id);
     }
 }
