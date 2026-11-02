@@ -1,14 +1,11 @@
 package kr.sedanji;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 import kr.sedanji.admin.*;
 import kr.sedanji.chef.*;
-import kr.sedanji.importjob.*;
 import kr.sedanji.mention.*;
 import kr.sedanji.restaurant.*;
 import kr.sedanji.restaurantcandidate.*;
-import kr.sedanji.video.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,29 +15,15 @@ import static kr.sedanji.Models.*;
 @Service @Transactional(readOnly = true)
 class CatalogService {
     private final ChefService chefs;
-    private final VideoService videos;
     private final MentionRepository mentions;
     private final RestaurantService restaurants;
     private final RestaurantCandidateService candidates;
-    private final ImportJobRepository jobs;
     private final AdminUserRepository admins;
-    private final DescriptionExtractor extractor;
-    CatalogService(ChefService chefs, VideoService videos, MentionRepository mentions, RestaurantService restaurants,
-                   RestaurantCandidateService candidates, ImportJobRepository jobs,
-                   AdminUserRepository admins, DescriptionExtractor extractor) {
-        this.chefs = chefs; this.videos = videos; this.mentions = mentions; this.restaurants = restaurants;
-        this.candidates = candidates; this.jobs = jobs; this.admins = admins; this.extractor = extractor;
-    }
-    @Transactional public Video importVideo(String url) {
-        String id = VideoUrl.parse(url);
-        var existing = videos.findExisting(id);
-        if (existing.isPresent()) return existing.get();
-        OffsetDateTime started = OffsetDateTime.now();
-        Video video = videos.fetchMetadata(id);
-        var entity = videos.saveMetadata(video);
-        var job = jobs.saveAndFlush(new ImportJobEntity(entity, started));
-        for (Extracted candidate : extractor.extract(video.description())) candidates.addExtractedCandidate(job, candidate);
-        return entity.toDto();
+    CatalogService(ChefService chefs, MentionRepository mentions, RestaurantService restaurants,
+                   RestaurantCandidateService candidates,
+                   AdminUserRepository admins) {
+        this.chefs = chefs; this.mentions = mentions; this.restaurants = restaurants;
+        this.candidates = candidates; this.admins = admins;
     }
     public List<Mention> mentions() { return mentions.findAllByOrderByIdDesc().stream().map(MentionEntity::toDto).toList(); }
     @Transactional public void approve(long id, long chefId, String placeId, MentionType type, Integer timestamp,

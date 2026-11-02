@@ -7,6 +7,7 @@ import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
+import kr.sedanji.importjob.VideoImportService;
 import kr.sedanji.restaurantcandidate.PlaceCandidateRepository;
 import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -47,6 +49,7 @@ class ApprovalIntegrationTest {
     @Autowired ChefService chefService;
     @Autowired RestaurantService restaurantService;
     @Autowired VideoService videoService;
+    @Autowired VideoImportService videoImportService;
     @Autowired RestaurantCandidateService candidateService;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired CandidateMatchingService matching;
@@ -54,11 +57,12 @@ class ApprovalIntegrationTest {
     @Autowired EntityManager entityManager;
     @Autowired PlaceCandidateRepository places;
     @MockitoBean ExternalApis apis;
+    @MockitoSpyBean DescriptionExtractor extractor;
     private final String videoId = "RMTJPFKRbEk";
     private final Place place = new Place("1158460117", "뽀요베리", "서울 마포구 월드컵로13길 55-15", "서울 마포구 망원동 57-302", 126.90687068921198, 37.55461513602502, "http://place.map.kakao.com/1158460117");
     private long imported() {
         when(apis.video(videoId)).thenReturn(new Video(videoId, "검증 영상", "채널은 셰프 아님", OffsetDateTime.now(), "🥘 뽀요베리\n📍서울 마포구 월드컵로13길 55-15", "수동 확인"));
-        service.importVideo("https://youtu.be/" + videoId);
+        videoImportService.importVideo("https://youtu.be/" + videoId);
         return candidateService.findCandidates().get(0).id();
     }
     private long prepared() {
@@ -81,6 +85,45 @@ class ApprovalIntegrationTest {
         assertThat(chefService.findChefs()).isEmpty();
         assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isEqualTo(1);
         verify(apis, times(1)).video(videoId);
+        verify(extractor, times(1)).extract(anyString());
+    }
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void extractionFailureRollsBackVideoAndImportJob() {
+        when(apis.video(videoId)).thenReturn(new Video(videoId, "영상", "채널", OffsetDateTime.now(), "원문", "확인"));
+        doThrow(new IllegalStateException("설명란 처리 실패")).when(extractor).extract("원문");
+        assertThatThrownBy(() -> videoImportService.importVideo("https://youtu.be/" + videoId))
+            .isInstanceOf(IllegalStateException.class).hasMessage("설명란 처리 실패");
+        assertThat(db.queryForObject("select count(*) from videos", Integer.class)).isZero();
+        assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isZero();
+        assertThat(candidateService.findCandidates()).isEmpty();
+    }
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void candidateStorageFailureRollsBackPreviouslyInsertedCandidateAndVideo() {
+        when(apis.video(videoId)).thenReturn(new Video(videoId, "영상", "채널", OffsetDateTime.now(), "원문", "확인"));
+        doReturn(List.of(new Extracted("첫 식당", "", 1, "원문"), new Extracted("두 번째 식당", "", 2, null)))
+            .when(extractor).extract("원문");
+        assertThatThrownBy(() -> videoImportService.importVideo("https://youtu.be/" + videoId))
+            .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(db.queryForObject("select count(*) from videos", Integer.class)).isZero();
+        assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isZero();
+        assertThat(candidateService.findCandidates()).isEmpty();
+    }
+    @Test void videoImportEndpointKeepsMetadataResponseAndCandidateCreation() throws Exception {
+        when(apis.video(videoId)).thenReturn(new Video(videoId, "영상", "채널", OffsetDateTime.now(),
+            "🥘 뽀요베리\n📍서울 마포구 월드컵로13길 55-15", "확인"));
+        mvc.perform(post("/api/admin/videos").with(csrf()).contentType("application/json")
+            .content("{\"url\":\"https://youtu.be/" + videoId + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(videoId))
+            .andExpect(jsonPath("$.title").value("영상"))
+            .andExpect(jsonPath("$.channelTitle").value("채널"))
+            .andExpect(jsonPath("$.publishedAt").exists())
+            .andExpect(jsonPath("$.extractionWarning").value("확인"));
+        assertThat(candidateService.findCandidates()).hasSize(1);
+        assertThat(service.mentions()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void metadataCanBeStoredWithoutCreatingImportJobsOrCandidates() {
         videoService.saveMetadata(new Video(videoId, "메타데이터만 등록", "채널", OffsetDateTime.now(), "식당 설명 원문", "확인"));
