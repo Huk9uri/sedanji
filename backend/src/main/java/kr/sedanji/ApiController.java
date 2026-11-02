@@ -10,6 +10,7 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.*;
 import static kr.sedanji.Models.*;
 import kr.sedanji.mention.MentionType;
+import kr.sedanji.mention.MentionService;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
@@ -20,13 +21,14 @@ import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 @RequestMapping("/api")
 class ApiController {
     private final CatalogService service;
+    private final MentionService mentions;
     private final ChefService chefs;
     private final RestaurantService restaurants;
     private final VideoService videos;
     private final VideoImportService videoImports;
     private final CandidateMatchingService matching;
     private final RestaurantCandidateService candidates;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates, VideoImportService videoImports) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; this.videoImports = videoImports; }
+    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates, VideoImportService videoImports, MentionService mentions) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; this.videoImports = videoImports; this.mentions = mentions; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -46,7 +48,7 @@ class ApiController {
     @PostMapping("/admin/videos/{id}/candidates") @ResponseStatus(HttpStatus.CREATED)
     void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { candidates.addManualCandidate(id, request.name(), request.address(), request.evidence()); }
     @GetMapping("/admin/candidates") List<Candidate> candidates() { return candidates.findCandidates(); }
-    @GetMapping("/admin/mentions") List<Mention> mentions() { return service.mentions(); }
+    @GetMapping("/admin/mentions") List<Mention> mentions() { return mentions.findMentions(); }
     @GetMapping("/admin/candidates/{id}/places") CandidateSearch saved(@PathVariable long id) { return matching.saved(id); }
     @PostMapping("/admin/candidates/{id}/places") CandidateSearch search(@PathVariable long id, @Valid @RequestBody SearchRequest request) { return matching.search(id, request.query()); }
     @PostMapping("/admin/candidates/{id}/mentions") @ResponseStatus(HttpStatus.CREATED)
