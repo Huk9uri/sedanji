@@ -18,29 +18,27 @@ import static kr.sedanji.Models.*;
 @Service @Transactional(readOnly = true)
 class CatalogService {
     private final ChefService chefs;
-    private final VideoRepository videos;
+    private final VideoService videos;
     private final MentionRepository mentions;
     private final RestaurantService restaurants;
     private final RestaurantCandidateRepository candidates;
     private final PlaceCandidateRepository places;
     private final ImportJobRepository jobs;
     private final AdminUserRepository admins;
-    private final ExternalApis apis;
     private final DescriptionExtractor extractor;
-    CatalogService(ChefService chefs, VideoRepository videos, MentionRepository mentions, RestaurantService restaurants,
+    CatalogService(ChefService chefs, VideoService videos, MentionRepository mentions, RestaurantService restaurants,
                    RestaurantCandidateRepository candidates, PlaceCandidateRepository places, ImportJobRepository jobs,
-                   AdminUserRepository admins, ExternalApis apis, DescriptionExtractor extractor) {
+                   AdminUserRepository admins, DescriptionExtractor extractor) {
         this.chefs = chefs; this.videos = videos; this.mentions = mentions; this.restaurants = restaurants;
-        this.candidates = candidates; this.places = places; this.jobs = jobs; this.admins = admins; this.apis = apis; this.extractor = extractor;
+        this.candidates = candidates; this.places = places; this.jobs = jobs; this.admins = admins; this.extractor = extractor;
     }
-    public List<Video> videos() { return videos.findAllByOrderByImportedAtDesc().stream().map(VideoEntity::toDto).toList(); }
     @Transactional public Video importVideo(String url) {
-        String id = DescriptionExtractor.videoId(url);
-        var existing = videos.findById(id);
-        if (existing.isPresent()) return existing.get().toDto();
+        String id = VideoUrl.parse(url);
+        var existing = videos.findExisting(id);
+        if (existing.isPresent()) return existing.get();
         OffsetDateTime started = OffsetDateTime.now();
-        Video video = apis.video(id);
-        var entity = videos.saveAndFlush(new VideoEntity(video));
+        Video video = videos.fetchMetadata(id);
+        var entity = videos.saveMetadata(video);
         var job = jobs.saveAndFlush(new ImportJobEntity(entity, started));
         for (Extracted candidate : extractor.extract(video.description())) insertCandidate(job, candidate);
         return entity.toDto();
@@ -51,7 +49,7 @@ class CatalogService {
             candidates.save(new RestaurantCandidateEntity(job, value));
     }
     @Transactional public void addCandidate(String videoId, String name, String address, String evidence) {
-        var video = videos.findById(videoId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "영상을 찾을 수 없습니다."));
+        var video = videos.getRequired(videoId);
         if (!video.getDescription().contains(evidence)) throw new IllegalArgumentException("근거는 저장된 설명란 원문에 포함되어야 합니다.");
         var job = jobs.findFirstByVideoIdOrderByIdDesc(videoId).orElseThrow();
         insertCandidate(job, new Extracted(name.strip(), address, 0, evidence));

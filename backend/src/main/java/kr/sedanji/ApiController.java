@@ -12,6 +12,7 @@ import static kr.sedanji.Models.*;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
+import kr.sedanji.video.VideoService;
 
 @RestController
 @RequestMapping("/api")
@@ -19,8 +20,9 @@ class ApiController {
     private final CatalogService service;
     private final ChefService chefs;
     private final RestaurantService restaurants;
+    private final VideoService videos;
     private final CandidateMatchingService matching;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; }
+    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -35,7 +37,7 @@ class ApiController {
     @GetMapping("/restaurants") List<Restaurant> restaurants() { return restaurants.findPublishedRestaurants(); }
     @GetMapping("/admin/chefs") List<Chef> chefs() { return chefs.findChefs(); }
     @PostMapping("/admin/chefs") Chef chef(@Valid @RequestBody ChefRequest request) { return chefs.createChef(request.name()); }
-    @GetMapping("/admin/videos") List<Video> videos() { return service.videos(); }
+    @GetMapping("/admin/videos") List<Video> videos() { return videos.findVideos(); }
     @PostMapping("/admin/videos") Video importVideo(@Valid @RequestBody ImportRequest request) { return service.importVideo(request.url()); }
     @PostMapping("/admin/videos/{id}/candidates") @ResponseStatus(HttpStatus.CREATED)
     void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { service.addCandidate(id, request.name(), request.address(), request.evidence()); }

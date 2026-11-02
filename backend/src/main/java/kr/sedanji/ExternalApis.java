@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import static kr.sedanji.Models.*;
 
 @Component
-class ExternalApis {
+public class ExternalApis {
     private final String youtubeKey, kakaoKey;
     private final ObjectMapper mapper;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
@@ -32,7 +32,7 @@ class ExternalApis {
         catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new ApiFailure("외부 API 요청 중단"); }
         catch (Exception ex) { throw new ApiFailure("외부 API 연결 또는 응답 형식 오류"); }
     }
-    Video video(String id) {
+    public Video video(String id) {
         JsonNode data = get("https://www.googleapis.com/youtube/v3/videos?part=snippet&id=" + id, "X-Goog-Api-Key", youtubeKey);
         if (!data.path("items").isArray()) throw new ApiFailure("YouTube 응답 형식 오류");
         if (data.path("items").isEmpty()) throw new IllegalArgumentException("조회 가능한 영상이 없습니다. 비공개·삭제 여부를 확인하세요.");
