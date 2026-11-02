@@ -5,7 +5,7 @@ YouTube 설명란의 식당 후보를 관리자가 검토하고, 승인한 장�
 ## 구성
 
 - `backend/`: Java 17, Spring Boot 3.5.16, Spring Security, Spring Data JPA, Flyway, Gradle Wrapper
-- `compose.yaml`: PostgreSQL 17, 로컬 포트 55432, 영속 볼륨
+- `compose.yaml`: PostgreSQL 17, 로컬 포트 15432, 영속 볼륨
 - `frontend/`: React 19, Vite, Kakao Maps Web SDK
 - 루트 Python 스크립트: 기존 YouTube/Kakao PoC와 추가 영상 검증
 
