@@ -5,6 +5,7 @@ import java.util.List;
 import jakarta.persistence.EntityManager;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.mention.MentionService;
+import kr.sedanji.registration.RegistrationService;
 import kr.sedanji.admin.AdminUserRepository;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
@@ -47,7 +48,7 @@ class ApprovalIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
     }
     @Autowired MockMvc mvc;
-    @Autowired CatalogService service;
+    @Autowired RegistrationService registrationService;
     @Autowired MentionService mentionService;
     @Autowired AdminUserRepository adminUsers;
     @Autowired ChefService chefService;
@@ -76,7 +77,7 @@ class ApprovalIntegrationTest {
         return candidate;
     }
     private void approve(long candidate, long chef) {
-        service.approve(candidate, chef, place.id(), MentionType.VISITED, null, "해당 셰프의 방문을 직접 확인", "지점과 출처 확인", "admin");
+        registrationService.approveFromCandidate(candidate, chef, place.id(), MentionType.VISITED, null, "해당 셰프의 방문을 직접 확인", "지점과 출처 확인", "admin");
     }
     private String body(long chef) {
         return "{\"chefId\":" + chef + ",\"placeId\":\"1158460117\",\"mentionType\":\"VISITED\",\"timestampSeconds\":null,\"evidence\":\"방문 확인\",\"note\":\"출처와 지점 확인\"}";
@@ -321,7 +322,7 @@ class ApprovalIntegrationTest {
         db.update("update mentions set publication_status='SUSPENDED',version=version+1");
         entityManager.clear();
         assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
-        assertThatThrownBy(() -> service.approve(candidate, chef, place.id(), MentionType.RECOMMENDED, null, "새 유형", null, "admin"))
+        assertThatThrownBy(() -> registrationService.approveFromCandidate(candidate, chef, place.id(), MentionType.RECOMMENDED, null, "새 유형", null, "admin"))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
             .hasMessageContaining("409");
     }
@@ -344,7 +345,7 @@ class ApprovalIntegrationTest {
     }
     @Test void unknownTimestampAndZeroAreDistinct() {
         long candidate = prepared(), chef = chefService.createChef("윤남노").id();
-        service.approve(candidate, chef, place.id(), MentionType.MENTIONED, 0, "시작 부분 언급 확인", "메모", "admin");
+        registrationService.approveFromCandidate(candidate, chef, place.id(), MentionType.MENTIONED, 0, "시작 부분 언급 확인", "메모", "admin");
         assertThat(mentionService.findMentions().get(0).timestampSeconds()).isZero();
     }
     @Test void approvalRequiresExplicitTypeEvidenceAndValidTimestamp() throws Exception {
