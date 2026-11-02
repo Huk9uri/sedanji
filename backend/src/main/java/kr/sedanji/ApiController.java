@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import static kr.sedanji.Models.*;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.mention.MentionService;
+import kr.sedanji.registration.RegistrationService;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
@@ -20,7 +21,7 @@ import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 @RestController
 @RequestMapping("/api")
 class ApiController {
-    private final CatalogService service;
+    private final RegistrationService registrations;
     private final MentionService mentions;
     private final ChefService chefs;
     private final RestaurantService restaurants;
@@ -28,7 +29,7 @@ class ApiController {
     private final VideoImportService videoImports;
     private final CandidateMatchingService matching;
     private final RestaurantCandidateService candidates;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates, VideoImportService videoImports, MentionService mentions) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; this.videoImports = videoImports; this.mentions = mentions; }
+    ApiController(RegistrationService registrations, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates, VideoImportService videoImports, MentionService mentions) { this.registrations = registrations; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; this.videoImports = videoImports; this.mentions = mentions; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -53,7 +54,7 @@ class ApiController {
     @PostMapping("/admin/candidates/{id}/places") CandidateSearch search(@PathVariable long id, @Valid @RequestBody SearchRequest request) { return matching.search(id, request.query()); }
     @PostMapping("/admin/candidates/{id}/mentions") @ResponseStatus(HttpStatus.CREATED)
     void approve(@PathVariable long id, @Valid @RequestBody Approval request, Principal principal) {
-        service.approve(id, request.chefId(), request.placeId(), request.mentionType(), request.timestampSeconds(), request.evidence(), request.note(), principal.getName());
+        registrations.approveFromCandidate(id, request.chefId(), request.placeId(), request.mentionType(), request.timestampSeconds(), request.evidence(), request.note(), principal.getName());
     }
     @PostMapping("/admin/candidates/{id}/dismiss") @ResponseStatus(HttpStatus.NO_CONTENT)
     void dismiss(@PathVariable long id, @Valid @RequestBody Rejection request) { candidates.dismissCandidate(id, request.note()); }
