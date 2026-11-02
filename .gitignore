@@ -10,3 +10,5 @@ target/
 *.log
 .gradle/
 backend/build/
+.idea/
+backend/bin/
