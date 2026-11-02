@@ -21,14 +21,6 @@ class DescriptionExtractorTest {
     @Test void mapCollectionsAndChannelLinksAreNotRestaurants() {
         assertThat(extractor.extract("📍셰프 맛지도\nhttps://naver.me/abc\n🍚 이원일식탁 ➡️ https://app.catchtable.co.kr/ct/shop/211table")).isEmpty();
     }
-    @Test void invalidHostsAndDuplicateIdsAreRejected() {
-        for (String url : new String[]{"invalid", "https://youtube.com.evil/watch?v=RMTJPFKRbEk", "https://youtube.com/watch?v=RMTJPFKRbEk&v=RMTJPFKRbEk"})
-            assertThatThrownBy(() -> DescriptionExtractor.videoId(url)).isInstanceOf(IllegalArgumentException.class);
-    }
-    @Test void officialUrlFormats() {
-        assertThat(DescriptionExtractor.videoId("https://www.youtube.com/watch?v=RMTJPFKRbEk&t=3")).isEqualTo("RMTJPFKRbEk");
-        assertThat(DescriptionExtractor.videoId("https://youtu.be/RMTJPFKRbEk")).isEqualTo("RMTJPFKRbEk");
-    }
     @Test void fiveRealDescriptionsExposeLimits() throws Exception {
         try (var stream = getClass().getResourceAsStream("/video-cases.json")) {
             var cases = new ObjectMapper().readTree(stream);

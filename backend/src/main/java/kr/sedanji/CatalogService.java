@@ -35,7 +35,7 @@ class CatalogService {
     }
     public List<Video> videos() { return videos.findAllByOrderByImportedAtDesc().stream().map(VideoEntity::toDto).toList(); }
     @Transactional public Video importVideo(String url) {
-        String id = DescriptionExtractor.videoId(url);
+        String id = VideoUrl.parse(url);
         var existing = videos.findById(id);
         if (existing.isPresent()) return existing.get().toDto();
         OffsetDateTime started = OffsetDateTime.now();
