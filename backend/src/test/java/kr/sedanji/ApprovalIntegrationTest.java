@@ -6,6 +6,7 @@ import jakarta.persistence.EntityManager;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
+import kr.sedanji.video.VideoService;
 import kr.sedanji.restaurantcandidate.PlaceCandidateRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.security.test.context.support.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.*;
@@ -39,6 +41,7 @@ class ApprovalIntegrationTest {
     @Autowired CatalogService service;
     @Autowired ChefService chefService;
     @Autowired RestaurantService restaurantService;
+    @Autowired VideoService videoService;
     @Autowired CandidateMatchingService matching;
     @Autowired JdbcTemplate db;
     @Autowired EntityManager entityManager;
@@ -71,6 +74,41 @@ class ApprovalIntegrationTest {
         assertThat(chefService.findChefs()).isEmpty();
         assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isEqualTo(1);
         verify(apis, times(1)).video(videoId);
+    }
+    @Test void metadataCanBeStoredWithoutCreatingImportJobsOrCandidates() {
+        videoService.saveMetadata(new Video(videoId, "메타데이터만 등록", "채널", OffsetDateTime.now(), "식당 설명 원문", "확인"));
+        assertThat(videoService.findExisting(videoId)).isPresent();
+        assertThat(service.candidates()).isEmpty();
+        assertThat(service.mentions()).isEmpty();
+        assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isZero();
+        verifyNoInteractions(apis);
+    }
+    @Test void savingExistingVideoReusesItWithoutOverwritingMetadata() {
+        var first = videoService.saveMetadata(new Video(videoId, "기존 제목", "채널", OffsetDateTime.now(), "원문", "확인"));
+        var reused = videoService.saveMetadata(new Video(videoId, "바뀐 제목", "다른 채널", OffsetDateTime.now(), "변경 원문", "확인"));
+        assertThat(reused.getId()).isEqualTo(first.getId());
+        assertThat(reused.getTitle()).isEqualTo("기존 제목");
+        assertThat(db.queryForObject("select count(*) from videos", Integer.class)).isEqualTo(1);
+        verifyNoInteractions(apis);
+    }
+    @Test void externalMetadataLookupDoesNotRunInsideDatabaseTransaction() {
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+        when(apis.video(videoId)).thenAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return new Video(videoId, "영상", "채널", OffsetDateTime.now(), "", "확인");
+        });
+        assertThat(videoService.fetchMetadata(videoId).id()).isEqualTo(videoId);
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+    }
+    @Test void adminVideoListKeepsExistingResponseFields() throws Exception {
+        videoService.saveMetadata(new Video(videoId, "목록 영상", "채널", OffsetDateTime.now(), "설명", "확인"));
+        mvc.perform(get("/api/admin/videos")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(videoId))
+            .andExpect(jsonPath("$[0].title").value("목록 영상"))
+            .andExpect(jsonPath("$[0].channelTitle").value("채널"))
+            .andExpect(jsonPath("$[0].description").value("설명"))
+            .andExpect(jsonPath("$[0].publishedAt").exists())
+            .andExpect(jsonPath("$[0].extractionWarning").value("확인"));
     }
     @Test void matchingNeverApprovesRelationship() {
         prepared();
