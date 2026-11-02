@@ -8,6 +8,7 @@ import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
 import kr.sedanji.restaurantcandidate.PlaceCandidateRepository;
+import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,6 +19,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.security.test.context.support.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.*;
@@ -42,6 +47,8 @@ class ApprovalIntegrationTest {
     @Autowired ChefService chefService;
     @Autowired RestaurantService restaurantService;
     @Autowired VideoService videoService;
+    @Autowired RestaurantCandidateService candidateService;
+    @Autowired PlatformTransactionManager transactionManager;
     @Autowired CandidateMatchingService matching;
     @Autowired JdbcTemplate db;
     @Autowired EntityManager entityManager;
@@ -52,7 +59,7 @@ class ApprovalIntegrationTest {
     private long imported() {
         when(apis.video(videoId)).thenReturn(new Video(videoId, "검증 영상", "채널은 셰프 아님", OffsetDateTime.now(), "🥘 뽀요베리\n📍서울 마포구 월드컵로13길 55-15", "수동 확인"));
         service.importVideo("https://youtu.be/" + videoId);
-        return service.candidates().get(0).id();
+        return candidateService.findCandidates().get(0).id();
     }
     private long prepared() {
         long candidate = imported();
@@ -68,7 +75,7 @@ class ApprovalIntegrationTest {
     }
     @Test void extractionCreatesCandidateNotMentionAndImportIsIdempotent() {
         imported(); imported();
-        assertThat(service.candidates()).hasSize(1);
+        assertThat(candidateService.findCandidates()).hasSize(1);
         assertThat(service.mentions()).isEmpty();
         assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
         assertThat(chefService.findChefs()).isEmpty();
@@ -78,7 +85,7 @@ class ApprovalIntegrationTest {
     @Test void metadataCanBeStoredWithoutCreatingImportJobsOrCandidates() {
         videoService.saveMetadata(new Video(videoId, "메타데이터만 등록", "채널", OffsetDateTime.now(), "식당 설명 원문", "확인"));
         assertThat(videoService.findExisting(videoId)).isPresent();
-        assertThat(service.candidates()).isEmpty();
+        assertThat(candidateService.findCandidates()).isEmpty();
         assertThat(service.mentions()).isEmpty();
         assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isZero();
         verifyNoInteractions(apis);
@@ -110,10 +117,51 @@ class ApprovalIntegrationTest {
             .andExpect(jsonPath("$[0].publishedAt").exists())
             .andExpect(jsonPath("$[0].extractionWarning").value("확인"));
     }
+    @Test void repeatedExtractionKeepsOriginalCandidateEvidence() {
+        long id = imported();
+        var original = candidateService.findCandidates().get(0);
+        var job = candidateService.getForUpdate(id).getImportJob();
+        candidateService.addExtractedCandidate(job, new Extracted(original.extractedName(), "다른 주소",
+            original.sourceLine(), "다른 원문"));
+        assertThat(candidateService.findCandidates()).containsExactly(original);
+    }
+    @Test void candidateApiKeepsListAndDismissalBehavior() throws Exception {
+        long id = imported();
+        mvc.perform(get("/api/admin/candidates")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(id))
+            .andExpect(jsonPath("$[0].extractedName").value("뽀요베리"))
+            .andExpect(jsonPath("$[0].disposition").value("OPEN"));
+        mvc.perform(post("/api/admin/candidates/" + id + "/dismiss").with(csrf())
+            .contentType("application/json").content("{\"note\":\"제외 사유\"}"))
+            .andExpect(status().isNoContent());
+        assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("DISMISSED");
+        mvc.perform(get("/api/admin/candidates/" + Long.MAX_VALUE + "/places")).andExpect(status().isNotFound());
+    }
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void candidateLocksRequireCallerTransaction() {
+        assertThatThrownBy(() -> candidateService.getForUpdate(1)).isInstanceOf(IllegalTransactionStateException.class);
+        assertThatThrownBy(() -> candidateService.resolveCandidate(1)).isInstanceOf(IllegalTransactionStateException.class);
+    }
+    @Test void approvalAndCandidateResolutionRollbackTogether() {
+        var transaction = new TransactionTemplate(transactionManager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            long id = prepared();
+            approve(id, chefService.createChef("롤백 확인 셰프").id());
+            assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("RESOLVED");
+            throw new IllegalStateException("강제 롤백 확인");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("강제 롤백 확인");
+        assertThat(candidateService.findCandidates()).isEmpty();
+        assertThat(service.mentions()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
+        assertThat(db.queryForObject("select count(*) from restaurants", Integer.class)).isZero();
+        assertThat(db.queryForObject("select count(*) from videos", Integer.class)).isZero();
+    }
     @Test void matchingNeverApprovesRelationship() {
         prepared();
-        assertThat(service.candidates().get(0).matchStatus()).isEqualTo("MATCHED");
-        assertThat(service.candidates().get(0).disposition()).isEqualTo("OPEN");
+        assertThat(candidateService.findCandidates().get(0).matchStatus()).isEqualTo("MATCHED");
+        assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("OPEN");
         assertThat(service.mentions()).isEmpty();
         assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
@@ -121,7 +169,7 @@ class ApprovalIntegrationTest {
         long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());
         entityManager.flush(); entityManager.clear();
         db.update("update mentions set verification_status='PENDING',publication_status='SUSPENDED'");
-        assertThat(service.candidates().get(0).disposition()).isEqualTo("RESOLVED");
+        assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("RESOLVED");
         assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void approvalCreatesSeparateRelationAndPublishesOnlyVerifiedFields() throws Exception {
@@ -133,8 +181,8 @@ class ApprovalIntegrationTest {
         assertThat(relation.mentionType()).isEqualTo(MentionType.VISITED);
         assertThat(relation.timestampSeconds()).isNull();
         assertThat(relation.reviewedBy()).isEqualTo("admin");
-        assertThat(service.candidates()).hasSize(1);
-        assertThat(service.candidates().get(0).disposition()).isEqualTo("RESOLVED");
+        assertThat(candidateService.findCandidates()).hasSize(1);
+        assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("RESOLVED");
         mvc.perform(get("/api/restaurants")).andExpect(status().isOk())
             .andExpect(jsonPath("$[0].mentions[0].mentionType").value("VISITED"))
             .andExpect(jsonPath("$[0].mentions[0].reviewNote").doesNotExist())
@@ -145,15 +193,15 @@ class ApprovalIntegrationTest {
         long candidate = prepared();
         approve(candidate, chefService.createChef("셰프 하나").id());
         approve(candidate, chefService.createChef("셰프 둘").id());
-        assertThat(service.candidates()).hasSize(1);
+        assertThat(candidateService.findCandidates()).hasSize(1);
         assertThat(service.mentions()).hasSize(2);
         assertThat(restaurantService.findPublishedRestaurants()).hasSize(1);
         assertThat(restaurantService.findPublishedRestaurants().get(0).mentions()).hasSize(2);
     }
     @Test void sameRelationshipCannotBeDuplicatedThroughDifferentCandidates() {
         long first = prepared(), chef = chefService.createChef("윤남노").id();
-        service.addCandidate(videoId, "수동 후보", "", "뽀요베리");
-        long second = service.candidates().get(0).id();
+        candidateService.addManualCandidate(videoId, "수동 후보", "", "뽀요베리");
+        long second = candidateService.findCandidates().get(0).id();
         matching.search(second, "뽀요베리");
         approve(first, chef);
         assertThatThrownBy(() -> approve(second, chef)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
@@ -185,19 +233,19 @@ class ApprovalIntegrationTest {
             .hasMessageContaining("409");
     }
     @Test void dismissalDoesNotCreateMentionOrRestaurant() {
-        long candidate = prepared(); service.dismiss(candidate, "영상 출처 근거 부족");
-        assertThat(service.candidates().get(0).disposition()).isEqualTo("DISMISSED");
+        long candidate = prepared(); candidateService.dismissCandidate(candidate, "영상 출처 근거 부족");
+        assertThat(candidateService.findCandidates().get(0).disposition()).isEqualTo("DISMISSED");
         assertThat(service.mentions()).isEmpty();
         assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void resolvedCandidateCannotBeDismissed() {
         long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());
-        assertThatThrownBy(() -> service.dismiss(candidate, "제외")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> candidateService.dismissCandidate(candidate, "제외")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
     @Test void onlyPlacesBelongingToCandidateCanBeApproved() {
         prepared();
-        service.addCandidate(videoId, "다른 후보", "", "뽀요베리");
-        long unsearched = service.candidates().get(0).id(), chef = chefService.createChef("윤남노").id();
+        candidateService.addManualCandidate(videoId, "다른 후보", "", "뽀요베리");
+        long unsearched = candidateService.findCandidates().get(0).id(), chef = chefService.createChef("윤남노").id();
         assertThatThrownBy(() -> approve(unsearched, chef)).isInstanceOf(IllegalArgumentException.class);
         assertThat(service.mentions()).isEmpty();
     }
@@ -214,19 +262,19 @@ class ApprovalIntegrationTest {
     }
     @Test void manualCandidatesNeedSourceEvidenceAndKeepUnknownFieldsNull() {
         imported();
-        service.addCandidate(videoId, "수동", "", "뽀요베리");
-        var manual = service.candidates().get(0);
+        candidateService.addManualCandidate(videoId, "수동", "", "뽀요베리");
+        var manual = candidateService.findCandidates().get(0);
         assertThat(manual.sourceLine()).isNull();
         assertThat(manual.extractedAddress()).isNull();
-        assertThatThrownBy(() -> service.addCandidate(videoId, "가짜", "", "없는 설명")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> candidateService.addManualCandidate(videoId, "가짜", "", "없는 설명")).isInstanceOf(IllegalArgumentException.class);
     }
     @Test void searchFailurePreservesSnapshotStatusAndRecordsSafeError() {
         long candidate = prepared();
         when(apis.places(anyString())).thenThrow(new ExternalApis.ApiFailure("외부 API 연결 실패"));
         assertThatThrownBy(() -> matching.search(candidate, "뽀요베리")).isInstanceOf(ExternalApis.ApiFailure.class);
         entityManager.flush(); entityManager.clear();
-        assertThat(service.candidates().get(0).matchStatus()).isEqualTo("MATCHED");
-        assertThat(service.candidates().get(0).matchingErrorCode()).isEqualTo("EXTERNAL_API_FAILURE");
+        assertThat(candidateService.findCandidates().get(0).matchStatus()).isEqualTo("MATCHED");
+        assertThat(candidateService.findCandidates().get(0).matchingErrorCode()).isEqualTo("EXTERNAL_API_FAILURE");
         assertThat(matching.saved(candidate).candidates()).hasSize(1);
         assertThat(service.mentions()).isEmpty();
     }
@@ -234,7 +282,7 @@ class ApprovalIntegrationTest {
         long candidate = imported();
         when(apis.places(anyString())).thenThrow(new ExternalApis.ApiFailure("오류"));
         assertThatThrownBy(() -> matching.search(candidate, "뽀요베리")).isInstanceOf(ExternalApis.ApiFailure.class);
-        assertThat(service.candidates().get(0).matchStatus()).isNull();
+        assertThat(candidateService.findCandidates().get(0).matchStatus()).isNull();
     }
     @Test void emptySuccessfulSearchIsNotFound() {
         long candidate = imported();
@@ -265,6 +313,6 @@ class ApprovalIntegrationTest {
     @Test void failedVideoImportDoesNotCreateCandidatesOrRelations() throws Exception {
         when(apis.video(videoId)).thenThrow(new ExternalApis.ApiFailure("외부 API 요청 실패 (HTTP 403)"));
         mvc.perform(post("/api/admin/videos").with(csrf()).contentType("application/json").content("{\"url\":\"https://youtu.be/"+videoId+"\"}")).andExpect(status().isBadGateway());
-        assertThat(service.candidates()).isEmpty(); assertThat(service.mentions()).isEmpty();
+        assertThat(candidateService.findCandidates()).isEmpty(); assertThat(service.mentions()).isEmpty();
     }
 }

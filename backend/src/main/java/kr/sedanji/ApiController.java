@@ -13,6 +13,7 @@ import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
+import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 
 @RestController
 @RequestMapping("/api")
@@ -22,7 +23,8 @@ class ApiController {
     private final RestaurantService restaurants;
     private final VideoService videos;
     private final CandidateMatchingService matching;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; }
+    private final RestaurantCandidateService candidates;
+    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -40,8 +42,8 @@ class ApiController {
     @GetMapping("/admin/videos") List<Video> videos() { return videos.findVideos(); }
     @PostMapping("/admin/videos") Video importVideo(@Valid @RequestBody ImportRequest request) { return service.importVideo(request.url()); }
     @PostMapping("/admin/videos/{id}/candidates") @ResponseStatus(HttpStatus.CREATED)
-    void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { service.addCandidate(id, request.name(), request.address(), request.evidence()); }
-    @GetMapping("/admin/candidates") List<Candidate> candidates() { return service.candidates(); }
+    void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { candidates.addManualCandidate(id, request.name(), request.address(), request.evidence()); }
+    @GetMapping("/admin/candidates") List<Candidate> candidates() { return candidates.findCandidates(); }
     @GetMapping("/admin/mentions") List<Mention> mentions() { return service.mentions(); }
     @GetMapping("/admin/candidates/{id}/places") CandidateSearch saved(@PathVariable long id) { return matching.saved(id); }
     @PostMapping("/admin/candidates/{id}/places") CandidateSearch search(@PathVariable long id, @Valid @RequestBody SearchRequest request) { return matching.search(id, request.query()); }
@@ -50,5 +52,5 @@ class ApiController {
         service.approve(id, request.chefId(), request.placeId(), request.mentionType(), request.timestampSeconds(), request.evidence(), request.note(), principal.getName());
     }
     @PostMapping("/admin/candidates/{id}/dismiss") @ResponseStatus(HttpStatus.NO_CONTENT)
-    void dismiss(@PathVariable long id, @Valid @RequestBody Rejection request) { service.dismiss(id, request.note()); }
+    void dismiss(@PathVariable long id, @Valid @RequestBody Rejection request) { candidates.dismissCandidate(id, request.note()); }
 }
