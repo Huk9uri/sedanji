@@ -11,14 +11,16 @@ import org.springframework.web.bind.annotation.*;
 import static kr.sedanji.Models.*;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
+import kr.sedanji.restaurant.RestaurantService;
 
 @RestController
 @RequestMapping("/api")
 class ApiController {
     private final CatalogService service;
     private final ChefService chefs;
+    private final RestaurantService restaurants;
     private final CandidateMatchingService matching;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs) { this.service = service; this.matching = matching; this.chefs = chefs; }
+    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -30,7 +32,7 @@ class ApiController {
     record SearchRequest(@NotBlank @Size(max=100) String query) {}
     @GetMapping("/csrf") Map<String,String> csrf(CsrfToken token) { return Map.of("headerName", token.getHeaderName(), "token", token.getToken()); }
     @GetMapping("/session") Map<String,Object> session(Principal principal) { return Map.of("authenticated", principal != null, "username", principal == null ? "" : principal.getName()); }
-    @GetMapping("/restaurants") List<Restaurant> restaurants() { return service.restaurants(); }
+    @GetMapping("/restaurants") List<Restaurant> restaurants() { return restaurants.findPublishedRestaurants(); }
     @GetMapping("/admin/chefs") List<Chef> chefs() { return chefs.findChefs(); }
     @PostMapping("/admin/chefs") Chef chef(@Valid @RequestBody ChefRequest request) { return chefs.createChef(request.name()); }
     @GetMapping("/admin/videos") List<Video> videos() { return service.videos(); }

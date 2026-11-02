@@ -5,6 +5,7 @@ import java.util.List;
 import jakarta.persistence.EntityManager;
 import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
+import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.restaurantcandidate.PlaceCandidateRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,7 @@ class ApprovalIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired CatalogService service;
     @Autowired ChefService chefService;
+    @Autowired RestaurantService restaurantService;
     @Autowired CandidateMatchingService matching;
     @Autowired JdbcTemplate db;
     @Autowired EntityManager entityManager;
@@ -65,7 +67,7 @@ class ApprovalIntegrationTest {
         imported(); imported();
         assertThat(service.candidates()).hasSize(1);
         assertThat(service.mentions()).isEmpty();
-        assertThat(service.restaurants()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
         assertThat(chefService.findChefs()).isEmpty();
         assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isEqualTo(1);
         verify(apis, times(1)).video(videoId);
@@ -75,14 +77,14 @@ class ApprovalIntegrationTest {
         assertThat(service.candidates().get(0).matchStatus()).isEqualTo("MATCHED");
         assertThat(service.candidates().get(0).disposition()).isEqualTo("OPEN");
         assertThat(service.mentions()).isEmpty();
-        assertThat(service.restaurants()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void resolvedCandidateDoesNotPublishUnapprovedRelation() {
         long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());
         entityManager.flush(); entityManager.clear();
         db.update("update mentions set verification_status='PENDING',publication_status='SUSPENDED'");
         assertThat(service.candidates().get(0).disposition()).isEqualTo("RESOLVED");
-        assertThat(service.restaurants()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void approvalCreatesSeparateRelationAndPublishesOnlyVerifiedFields() throws Exception {
         long candidate = prepared(), chef = chefService.createChef("윤남노").id();
@@ -107,8 +109,8 @@ class ApprovalIntegrationTest {
         approve(candidate, chefService.createChef("셰프 둘").id());
         assertThat(service.candidates()).hasSize(1);
         assertThat(service.mentions()).hasSize(2);
-        assertThat(service.restaurants()).hasSize(1);
-        assertThat(service.restaurants().get(0).mentions()).hasSize(2);
+        assertThat(restaurantService.findPublishedRestaurants()).hasSize(1);
+        assertThat(restaurantService.findPublishedRestaurants().get(0).mentions()).hasSize(2);
     }
     @Test void sameRelationshipCannotBeDuplicatedThroughDifferentCandidates() {
         long first = prepared(), chef = chefService.createChef("윤남노").id();
@@ -131,7 +133,7 @@ class ApprovalIntegrationTest {
             .contentType("application/json").content(body(chef).replace(",\"note\":\"출처와 지점 확인\"", "")))
             .andExpect(status().isCreated());
         assertThat(db.queryForObject("select review_note from mentions", String.class)).isNull();
-        assertThat(service.restaurants()).hasSize(1);
+        assertThat(restaurantService.findPublishedRestaurants()).hasSize(1);
     }
     @Test void suspendedRelationshipIsNotPublishedAndCannotBeDuplicatedWithAnotherType() {
         long candidate = prepared();
@@ -139,7 +141,7 @@ class ApprovalIntegrationTest {
         approve(candidate, chef);
         db.update("update mentions set publication_status='SUSPENDED',version=version+1");
         entityManager.clear();
-        assertThat(service.restaurants()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
         assertThatThrownBy(() -> service.approve(candidate, chef, place.id(), MentionType.RECOMMENDED, null, "새 유형", null, "admin"))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
             .hasMessageContaining("409");
@@ -148,7 +150,7 @@ class ApprovalIntegrationTest {
         long candidate = prepared(); service.dismiss(candidate, "영상 출처 근거 부족");
         assertThat(service.candidates().get(0).disposition()).isEqualTo("DISMISSED");
         assertThat(service.mentions()).isEmpty();
-        assertThat(service.restaurants()).isEmpty();
+        assertThat(restaurantService.findPublishedRestaurants()).isEmpty();
     }
     @Test void resolvedCandidateCannotBeDismissed() {
         long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());

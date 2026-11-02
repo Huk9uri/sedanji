@@ -20,14 +20,14 @@ class CatalogService {
     private final ChefService chefs;
     private final VideoRepository videos;
     private final MentionRepository mentions;
-    private final RestaurantRepository restaurants;
+    private final RestaurantService restaurants;
     private final RestaurantCandidateRepository candidates;
     private final PlaceCandidateRepository places;
     private final ImportJobRepository jobs;
     private final AdminUserRepository admins;
     private final ExternalApis apis;
     private final DescriptionExtractor extractor;
-    CatalogService(ChefService chefs, VideoRepository videos, MentionRepository mentions, RestaurantRepository restaurants,
+    CatalogService(ChefService chefs, VideoRepository videos, MentionRepository mentions, RestaurantService restaurants,
                    RestaurantCandidateRepository candidates, PlaceCandidateRepository places, ImportJobRepository jobs,
                    AdminUserRepository admins, ExternalApis apis, DescriptionExtractor extractor) {
         this.chefs = chefs; this.videos = videos; this.mentions = mentions; this.restaurants = restaurants;
@@ -73,8 +73,7 @@ class CatalogService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "활성 관리자만 승인할 수 있습니다."));
         Place place = places.findByCandidateIdAndPlaceId(id, placeId)
             .orElseThrow(() -> new IllegalArgumentException("이 후보에서 검색한 Kakao 장소를 선택하세요.")).toDto();
-        restaurants.upsert(place.id(), place.name(), place.roadAddress(), place.address(), place.longitude(), place.latitude(), place.placeUrl());
-        var restaurant = restaurants.findByKakaoPlaceId(place.id()).orElseThrow();
+        var restaurant = restaurants.getOrCreate(place);
         if (mentions.existsByChefIdAndRestaurantIdAndVideoId(chefId, restaurant.getId(), candidate.getImportJob().getVideo().getId()))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "같은 셰프·식당·영상의 관계가 이미 있습니다.");
         mentions.saveAndFlush(new MentionEntity(candidate, chef, restaurant, type, timestamp, evidence, note, admin));
@@ -84,9 +83,5 @@ class CatalogService {
         var candidate = locked(id);
         if (!candidate.getDisposition().equals("OPEN")) throw new ResponseStatusException(HttpStatus.CONFLICT, "관계가 승인된 후보는 제외할 수 없습니다.");
         candidate.dismiss(note);
-    }
-    public List<Restaurant> restaurants() {
-        return restaurants.findPublished().stream().map(restaurant -> restaurant.toDto(
-            mentions.findByRestaurantIdAndVerificationStatusAndPublicationStatusOrderByIdAsc(restaurant.getId(), "APPROVED", "PUBLISHED").stream().map(MentionEntity::toSource).toList())).toList();
     }
 }
