@@ -35,7 +35,7 @@ class CatalogService {
     }
     public List<Chef> chefs() { return chefs.findAllByOrderByNameAsc().stream().map(e -> new Chef(e.getId(), e.getName())).toList(); }
     @Transactional public Chef createChef(String name) {
-        var entity = chefs.findByName(name.strip()).orElseGet(() -> chefs.saveAndFlush(new ChefEntity(name.strip())));
+        var entity = chefs.saveAndFlush(new ChefEntity(name.strip()));
         return new Chef(entity.getId(), entity.getName());
     }
     public List<Video> videos() { return videos.findAllByOrderByImportedAtDesc().stream().map(VideoEntity::toDto).toList(); }
@@ -70,7 +70,7 @@ class CatalogService {
     }
     @Transactional public void approve(long id, long chefId, String placeId, MentionType type, Integer timestamp,
                                        String evidence, String note, String reviewer) {
-        if (type == null || evidence == null || evidence.isBlank() || note == null || note.isBlank() || (timestamp != null && timestamp < 0))
+        if (type == null || evidence == null || evidence.isBlank() || (timestamp != null && timestamp < 0))
             throw new IllegalArgumentException("언급 유형과 확인 근거를 입력하세요.");
         var candidate = locked(id);
         var chef = chefs.findById(chefId).orElseThrow(() -> new IllegalArgumentException("셰프를 선택하세요."));
@@ -80,8 +80,8 @@ class CatalogService {
             .orElseThrow(() -> new IllegalArgumentException("이 후보에서 검색한 Kakao 장소를 선택하세요.")).toDto();
         restaurants.upsert(place.id(), place.name(), place.roadAddress(), place.address(), place.longitude(), place.latitude(), place.placeUrl());
         var restaurant = restaurants.findByKakaoPlaceId(place.id()).orElseThrow();
-        if (mentions.existsByChefIdAndRestaurantIdAndVideoIdAndMentionType(chefId, restaurant.getId(), candidate.getImportJob().getVideo().getId(), type))
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "같은 셰프·식당·영상·언급 유형의 관계가 이미 있습니다.");
+        if (mentions.existsByChefIdAndRestaurantIdAndVideoId(chefId, restaurant.getId(), candidate.getImportJob().getVideo().getId()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "같은 셰프·식당·영상의 관계가 이미 있습니다.");
         mentions.saveAndFlush(new MentionEntity(candidate, chef, restaurant, type, timestamp, evidence, note, admin));
         candidate.resolve();
     }
@@ -92,6 +92,6 @@ class CatalogService {
     }
     public List<Restaurant> restaurants() {
         return restaurants.findPublished().stream().map(restaurant -> restaurant.toDto(
-            mentions.findByRestaurantIdAndVerificationStatusOrderByIdAsc(restaurant.getId(), "APPROVED").stream().map(MentionEntity::toSource).toList())).toList();
+            mentions.findByRestaurantIdAndVerificationStatusAndPublicationStatusOrderByIdAsc(restaurant.getId(), "APPROVED", "PUBLISHED").stream().map(MentionEntity::toSource).toList())).toList();
     }
 }

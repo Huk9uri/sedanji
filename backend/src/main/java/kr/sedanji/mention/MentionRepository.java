@@ -5,6 +5,6 @@ public interface MentionRepository extends JpaRepository<MentionEntity, Long> {
     @EntityGraph(attributePaths = {"video", "chef", "restaurant", "candidate", "reviewer"})
     List<MentionEntity> findAllByOrderByIdDesc();
     @EntityGraph(attributePaths = {"video", "chef"})
-    List<MentionEntity> findByRestaurantIdAndVerificationStatusOrderByIdAsc(long restaurantId, String status);
-    boolean existsByChefIdAndRestaurantIdAndVideoIdAndMentionType(long chefId, long restaurantId, String videoId, MentionType type);
+    List<MentionEntity> findByRestaurantIdAndVerificationStatusAndPublicationStatusOrderByIdAsc(long restaurantId, String status, String publicationStatus);
+    boolean existsByChefIdAndRestaurantIdAndVideoId(long chefId, long restaurantId, String videoId);
 }

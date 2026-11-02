@@ -78,7 +78,7 @@ class ApprovalIntegrationTest {
     @Test void resolvedCandidateDoesNotPublishUnapprovedRelation() {
         long candidate = prepared(); approve(candidate, service.createChef("윤남노").id());
         entityManager.flush(); entityManager.clear();
-        db.update("update mentions set verification_status='PENDING'");
+        db.update("update mentions set verification_status='PENDING',publication_status='SUSPENDED'");
         assertThat(service.candidates().get(0).disposition()).isEqualTo("RESOLVED");
         assertThat(service.restaurants()).isEmpty();
     }
@@ -116,6 +116,31 @@ class ApprovalIntegrationTest {
         approve(first, chef);
         assertThatThrownBy(() -> approve(second, chef)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(service.mentions()).hasSize(1);
+    }
+    @Test void sameNameChefsAreIndependentPeople() {
+        var first = service.createChef("동명셰프");
+        var second = service.createChef("동명셰프");
+        assertThat(second.id()).isNotEqualTo(first.id());
+    }
+    @Test void optionalReviewNoteCanBeOmittedFromApprovalRequest() throws Exception {
+        long candidate = prepared();
+        long chef = service.createChef("선택 메모 셰프").id();
+        mvc.perform(post("/api/admin/candidates/" + candidate + "/mentions").with(csrf())
+            .contentType("application/json").content(body(chef).replace(",\"note\":\"출처와 지점 확인\"", "")))
+            .andExpect(status().isCreated());
+        assertThat(db.queryForObject("select review_note from mentions", String.class)).isNull();
+        assertThat(service.restaurants()).hasSize(1);
+    }
+    @Test void suspendedRelationshipIsNotPublishedAndCannotBeDuplicatedWithAnotherType() {
+        long candidate = prepared();
+        long chef = service.createChef("공개 중단 셰프").id();
+        approve(candidate, chef);
+        db.update("update mentions set publication_status='SUSPENDED',version=version+1");
+        entityManager.clear();
+        assertThat(service.restaurants()).isEmpty();
+        assertThatThrownBy(() -> service.approve(candidate, chef, place.id(), MentionType.RECOMMENDED, null, "새 유형", null, "admin"))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("409");
     }
     @Test void dismissalDoesNotCreateMentionOrRestaurant() {
         long candidate = prepared(); service.dismiss(candidate, "영상 출처 근거 부족");

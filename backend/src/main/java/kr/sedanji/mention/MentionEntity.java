@@ -20,18 +20,21 @@ public class MentionEntity {
     @Enumerated(EnumType.STRING) @Column(name = "mention_type", length = 20) private MentionType mentionType;
     @Column(name = "timestamp_seconds") private Integer timestampSeconds;
     @Column(name = "verification_status", nullable = false, length = 20) private String verificationStatus;
-    @Column(nullable = false, columnDefinition = "text") private String evidence;
+    @Column(columnDefinition = "text") private String evidence;
+    @Column(name = "publication_status", nullable = false, length = 20) private String publicationStatus;
+    @Version private long version;
     @Column(name = "review_note", columnDefinition = "text") private String reviewNote;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "reviewed_by") private AdminUserEntity reviewer;
     @Column(name = "reviewed_at") private OffsetDateTime reviewedAt;
     protected MentionEntity() {}
     public MentionEntity(RestaurantCandidateEntity candidate, ChefEntity chef, RestaurantEntity restaurant,
                          MentionType type, Integer timestamp, String evidence, String note, AdminUserEntity reviewer) {
-        if (type == null || evidence == null || evidence.isBlank() || note == null || note.isBlank()
+        if (type == null || evidence == null || evidence.isBlank()
             || (timestamp != null && timestamp < 0)) throw new IllegalArgumentException("언급 유형과 확인 근거를 입력하세요.");
         this.candidate = candidate; video = candidate.getImportJob().getVideo(); this.chef = chef; this.restaurant = restaurant;
-        mentionType = type; timestampSeconds = timestamp; this.evidence = evidence.strip(); reviewNote = note.strip();
-        this.reviewer = reviewer; reviewedAt = OffsetDateTime.now(); verificationStatus = "APPROVED";
+        mentionType = type; timestampSeconds = timestamp; this.evidence = evidence.strip();
+        reviewNote = note == null || note.isBlank() ? null : note.strip();
+        this.reviewer = reviewer; reviewedAt = OffsetDateTime.now(); verificationStatus = "APPROVED"; publicationStatus = "PUBLISHED";
     }
     public Mention toDto() {
         return new Mention(id, candidate == null ? null : candidate.getId(), video.getId(), video.getTitle(), chef.getId(), chef.getName(),

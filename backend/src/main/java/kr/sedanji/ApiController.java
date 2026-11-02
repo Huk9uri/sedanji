@@ -23,7 +23,7 @@ class ApiController {
                            @NotBlank @Size(max=5000) String evidence) {}
     record Approval(@Positive long chefId, @NotBlank @Pattern(regexp="[0-9]{1,40}") String placeId,
                     @NotNull MentionType mentionType, @Min(0) Integer timestampSeconds,
-                    @NotBlank @Size(max=5000) String evidence, @NotBlank @Size(max=2000) String note) {}
+                    @NotBlank @Size(max=5000) String evidence, @Size(max=2000) String note) {}
     record Rejection(@NotBlank @Size(max=2000) String note) {}
     record SearchRequest(@NotBlank @Size(max=100) String query) {}
     @GetMapping("/csrf") Map<String,String> csrf(CsrfToken token) { return Map.of("headerName", token.getHeaderName(), "token", token.getToken()); }

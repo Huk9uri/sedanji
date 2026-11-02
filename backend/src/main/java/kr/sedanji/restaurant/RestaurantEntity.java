@@ -13,10 +13,11 @@ public class RestaurantEntity {
     private String kakaoPlaceId;
     @Column(nullable = false, columnDefinition = "text")
     private String name;
-    @Column(name = "road_address", nullable = false, columnDefinition = "text")
+    @Column(name = "road_address", columnDefinition = "text")
     private String roadAddress;
-    @Column(nullable = false, columnDefinition = "text")
+    @Column(columnDefinition = "text")
     private String address;
+    @Version private long version;
     @Column(nullable = false)
     private double longitude;
     @Column(nullable = false)
