@@ -6,11 +6,11 @@ import org.springframework.stereotype.Component;
 import static kr.sedanji.Models.*;
 
 @Component
-class DescriptionExtractor {
+public class DescriptionExtractor {
     private static final Pattern ADDRESS = Pattern.compile("(?:서울(?:특별시)?|부산(?:광역시)?|대구(?:광역시)?|인천(?:광역시)?|광주(?:광역시)?|대전(?:광역시)?|울산(?:광역시)?|세종(?:특별자치시)?|경기(?:도)?|강원(?:특별자치도|도)?|충청[남북]도|전라[남북]도|경상[남북]도|제주(?:특별자치도)?)\\s+.+(?:로|길|동|리)\\s*\\d[0-9-]*(?:\\s.*)?");
     private static final Pattern NAMED = Pattern.compile("(?:중식당|식당명|상호|식당)\\s*[:：]?\\s*\\[([^]\\r\\n]{1,80})]");
 
-    List<Extracted> extract(String description) {
+    public List<Extracted> extract(String description) {
         String[] lines = description.split("\\R", -1);
         List<Extracted> result = new ArrayList<>();
         for (int i = 0; i < lines.length; i++) {

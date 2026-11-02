@@ -13,6 +13,7 @@ import kr.sedanji.mention.MentionType;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.video.VideoService;
+import kr.sedanji.importjob.VideoImportService;
 import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 
 @RestController
@@ -22,9 +23,10 @@ class ApiController {
     private final ChefService chefs;
     private final RestaurantService restaurants;
     private final VideoService videos;
+    private final VideoImportService videoImports;
     private final CandidateMatchingService matching;
     private final RestaurantCandidateService candidates;
-    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; }
+    ApiController(CatalogService service, CandidateMatchingService matching, ChefService chefs, RestaurantService restaurants, VideoService videos, RestaurantCandidateService candidates, VideoImportService videoImports) { this.service = service; this.matching = matching; this.chefs = chefs; this.restaurants = restaurants; this.videos = videos; this.candidates = candidates; this.videoImports = videoImports; }
     record ImportRequest(@NotBlank @Size(max=500) String url) {}
     record ChefRequest(@NotBlank @Size(max=100) String name) {}
     record ManualCandidate(@NotBlank @Size(max=100) String name, @NotNull @Size(max=300) String address,
@@ -40,7 +42,7 @@ class ApiController {
     @GetMapping("/admin/chefs") List<Chef> chefs() { return chefs.findChefs(); }
     @PostMapping("/admin/chefs") Chef chef(@Valid @RequestBody ChefRequest request) { return chefs.createChef(request.name()); }
     @GetMapping("/admin/videos") List<Video> videos() { return videos.findVideos(); }
-    @PostMapping("/admin/videos") Video importVideo(@Valid @RequestBody ImportRequest request) { return service.importVideo(request.url()); }
+    @PostMapping("/admin/videos") Video importVideo(@Valid @RequestBody ImportRequest request) { return videoImports.importVideo(request.url()); }
     @PostMapping("/admin/videos/{id}/candidates") @ResponseStatus(HttpStatus.CREATED)
     void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { candidates.addManualCandidate(id, request.name(), request.address(), request.evidence()); }
     @GetMapping("/admin/candidates") List<Candidate> candidates() { return candidates.findCandidates(); }
