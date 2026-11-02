@@ -2,7 +2,7 @@
 
 갱신일: 2026-11-02. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
-이 문서는 관리자 1단계의 **구현 대상 설계**다. 아래 신규 모델·필드·제약은 아직 DB나 실행 코드에 적용되지 않았다. 실제 구현은 V2의 후보·관계 분리까지이며 [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다. 과거 DB 건수를 현재 상태로 가정하지 않는다.
+이 문서는 관리자 1단계의 **구현 대상 설계**다. 2026-11-02 직접 등록 기반 V3 스키마를 로컬 DB에 적용하고 기존 승인·조회 호환 코드를 맞췄다. [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)를 참조한다. 직접 등록·초안 API, 정정·복구용 Revision 모델과 새 UI는 아직 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
 
 ## 설계 범위
 

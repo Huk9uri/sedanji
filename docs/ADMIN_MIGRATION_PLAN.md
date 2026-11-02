@@ -1,6 +1,6 @@
 # 관리자 등록 모델 마이그레이션 계획
 
-작성일: 2026-11-02. **설계 문서이며 SQL 파일 생성·DB 접속·실행은 하지 않았다.** [모델](DOMAIN_MODEL.md)과 [API 계약](ADMIN_API.md)을 함께 적용한다.
+작성일: 2026-11-02. V3는 구현·테스트 후 로컬 개발 DB 적용을 완료했다. [적용 결과](DIRECT_REGISTRATION_MIGRATION.md)를 참조한다. V4는 아직 계획이며 미적용이다. [모델](DOMAIN_MODEL.md)과 [API 계약](ADMIN_API.md)을 함께 적용한다.
 
 ## 원칙과 적용 전 점검
 
@@ -33,7 +33,7 @@ WHERE conrelid IN ('chefs'::regclass, 'restaurants'::regclass, 'mentions'::regcl
 
 충돌이 있으면 마이그레이션을 중단한다. 임의로 관계를 선택해 삭제·병합하거나 유형·검증 상태를 추정하지 않는다. 해소 대상과 처리 방침을 사용자에게 제시한다. 미승인 기존 Mention도 검사·보존 대상이며 새 CREATE 초안으로 묵시 변환하지 않는다.
 
-## V3 예정: 직접 등록과 승인 제약
+## V3 적용 완료: 직접 등록과 승인 제약
 
 1. Chef 이름 UNIQUE를 제거하고 일반 이름 검색 인덱스를 추가한다. JPA unique 선언·단일 결과 조회·이름 자동 재사용 서비스도 함께 변경한다. 기존 이름·ID는 그대로 둔다.
 2. Restaurant·Chef·Mention에 version을 0으로 추가한다. Restaurant·Chef에 created_at을 추가한다. 과거 정확한 생성 시각을 복구할 수 없는 행은 이관 시각으로 채우고 이를 원래 등록 시각이라고 설명하지 않는다. 관리자 최근 등록순은 created_at 뒤에 id 내림차순으로 안정 정렬한다.
@@ -75,4 +75,4 @@ V3 모델을 쓰는 코드와 V4 기능은 배포 단위를 맞춘다. API가 �
 - 기존 후보·place snapshot·legacy archive가 보존되고 기존 승인 경로도 새 정책과 일치한다.
 - DB 기반 관리자·권한·CSRF, 공개 DTO 비밀정보/내부자료 비노출 회귀 검증.
 
-이번 문서 갱신에서는 위 테스트를 실행하지 않았다. 실제 구현 후 Testcontainers PostgreSQL에 V1→V2→후속 버전을 적용하여 검증하고 개발 DB 적용 결과와 구분해 기록한다.
+V3 관련 검증과 기존 회귀 테스트 42개를 Testcontainers에서 통과했고 개발 DB 적용 결과와 구분하여 [결과 문서](DIRECT_REGISTRATION_MIGRATION.md)에 기록했다. V4 기능의 검증은 해당 구현 시 수행한다.
