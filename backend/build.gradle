@@ -40,6 +40,14 @@ tasks.named('test') {
     testLogging { events 'passed', 'skipped', 'failed' }
 }
 
+tasks.register('migrateDevelopmentDatabase', JavaExec) {
+    group = 'database'
+    description = 'Apply and validate Flyway migrations on the explicitly configured local development database.'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'kr.sedanji.tools.MigrateDevelopmentDatabase'
+}
+
 tasks.named('wrapper') {
     gradleVersion = '8.14.3'
     distributionType = Wrapper.DistributionType.BIN

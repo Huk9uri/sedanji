@@ -1,4 +1,4 @@
-param([switch]$Test, [switch]$Package)
+param([switch]$Test, [switch]$Package, [switch]$Migrate)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $projectRoot '.env'
@@ -18,6 +18,7 @@ try {
     $gradleHome = Join-Path $projectRoot '.tools\gradle-home'
     if ($Test) { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon test }
     elseif ($Package) { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon bootJar }
+    elseif ($Migrate) { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon migrateDevelopmentDatabase }
     else { & .\gradlew.bat --gradle-user-home $gradleHome --no-daemon bootRun }
     exit $LASTEXITCODE
 } finally { Pop-Location }
