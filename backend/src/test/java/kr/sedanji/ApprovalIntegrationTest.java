@@ -4,6 +4,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import jakarta.persistence.EntityManager;
 import kr.sedanji.mention.MentionType;
+import kr.sedanji.chef.ChefService;
 import kr.sedanji.restaurantcandidate.PlaceCandidateRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,7 @@ class ApprovalIntegrationTest {
     }
     @Autowired MockMvc mvc;
     @Autowired CatalogService service;
+    @Autowired ChefService chefService;
     @Autowired CandidateMatchingService matching;
     @Autowired JdbcTemplate db;
     @Autowired EntityManager entityManager;
@@ -64,7 +66,7 @@ class ApprovalIntegrationTest {
         assertThat(service.candidates()).hasSize(1);
         assertThat(service.mentions()).isEmpty();
         assertThat(service.restaurants()).isEmpty();
-        assertThat(service.chefs()).isEmpty();
+        assertThat(chefService.findChefs()).isEmpty();
         assertThat(db.queryForObject("select count(*) from import_jobs", Integer.class)).isEqualTo(1);
         verify(apis, times(1)).video(videoId);
     }
@@ -76,14 +78,14 @@ class ApprovalIntegrationTest {
         assertThat(service.restaurants()).isEmpty();
     }
     @Test void resolvedCandidateDoesNotPublishUnapprovedRelation() {
-        long candidate = prepared(); approve(candidate, service.createChef("윤남노").id());
+        long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());
         entityManager.flush(); entityManager.clear();
         db.update("update mentions set verification_status='PENDING',publication_status='SUSPENDED'");
         assertThat(service.candidates().get(0).disposition()).isEqualTo("RESOLVED");
         assertThat(service.restaurants()).isEmpty();
     }
     @Test void approvalCreatesSeparateRelationAndPublishesOnlyVerifiedFields() throws Exception {
-        long candidate = prepared(), chef = service.createChef("윤남노").id();
+        long candidate = prepared(), chef = chefService.createChef("윤남노").id();
         mvc.perform(post("/api/admin/candidates/" + candidate + "/mentions").with(csrf()).contentType("application/json").content(body(chef))).andExpect(status().isCreated());
         entityManager.flush(); entityManager.clear();
         var relation = service.mentions().get(0);
@@ -101,15 +103,15 @@ class ApprovalIntegrationTest {
     }
     @Test void oneCandidateCanSupportMultipleChefs() {
         long candidate = prepared();
-        approve(candidate, service.createChef("셰프 하나").id());
-        approve(candidate, service.createChef("셰프 둘").id());
+        approve(candidate, chefService.createChef("셰프 하나").id());
+        approve(candidate, chefService.createChef("셰프 둘").id());
         assertThat(service.candidates()).hasSize(1);
         assertThat(service.mentions()).hasSize(2);
         assertThat(service.restaurants()).hasSize(1);
         assertThat(service.restaurants().get(0).mentions()).hasSize(2);
     }
     @Test void sameRelationshipCannotBeDuplicatedThroughDifferentCandidates() {
-        long first = prepared(), chef = service.createChef("윤남노").id();
+        long first = prepared(), chef = chefService.createChef("윤남노").id();
         service.addCandidate(videoId, "수동 후보", "", "뽀요베리");
         long second = service.candidates().get(0).id();
         matching.search(second, "뽀요베리");
@@ -118,13 +120,13 @@ class ApprovalIntegrationTest {
         assertThat(service.mentions()).hasSize(1);
     }
     @Test void sameNameChefsAreIndependentPeople() {
-        var first = service.createChef("동명셰프");
-        var second = service.createChef("동명셰프");
+        var first = chefService.createChef("동명셰프");
+        var second = chefService.createChef("동명셰프");
         assertThat(second.id()).isNotEqualTo(first.id());
     }
     @Test void optionalReviewNoteCanBeOmittedFromApprovalRequest() throws Exception {
         long candidate = prepared();
-        long chef = service.createChef("선택 메모 셰프").id();
+        long chef = chefService.createChef("선택 메모 셰프").id();
         mvc.perform(post("/api/admin/candidates/" + candidate + "/mentions").with(csrf())
             .contentType("application/json").content(body(chef).replace(",\"note\":\"출처와 지점 확인\"", "")))
             .andExpect(status().isCreated());
@@ -133,7 +135,7 @@ class ApprovalIntegrationTest {
     }
     @Test void suspendedRelationshipIsNotPublishedAndCannotBeDuplicatedWithAnotherType() {
         long candidate = prepared();
-        long chef = service.createChef("공개 중단 셰프").id();
+        long chef = chefService.createChef("공개 중단 셰프").id();
         approve(candidate, chef);
         db.update("update mentions set publication_status='SUSPENDED',version=version+1");
         entityManager.clear();
@@ -149,23 +151,23 @@ class ApprovalIntegrationTest {
         assertThat(service.restaurants()).isEmpty();
     }
     @Test void resolvedCandidateCannotBeDismissed() {
-        long candidate = prepared(); approve(candidate, service.createChef("윤남노").id());
+        long candidate = prepared(); approve(candidate, chefService.createChef("윤남노").id());
         assertThatThrownBy(() -> service.dismiss(candidate, "제외")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
     @Test void onlyPlacesBelongingToCandidateCanBeApproved() {
         prepared();
         service.addCandidate(videoId, "다른 후보", "", "뽀요베리");
-        long unsearched = service.candidates().get(0).id(), chef = service.createChef("윤남노").id();
+        long unsearched = service.candidates().get(0).id(), chef = chefService.createChef("윤남노").id();
         assertThatThrownBy(() -> approve(unsearched, chef)).isInstanceOf(IllegalArgumentException.class);
         assertThat(service.mentions()).isEmpty();
     }
     @Test void unknownTimestampAndZeroAreDistinct() {
-        long candidate = prepared(), chef = service.createChef("윤남노").id();
+        long candidate = prepared(), chef = chefService.createChef("윤남노").id();
         service.approve(candidate, chef, place.id(), MentionType.MENTIONED, 0, "시작 부분 언급 확인", "메모", "admin");
         assertThat(service.mentions().get(0).timestampSeconds()).isZero();
     }
     @Test void approvalRequiresExplicitTypeEvidenceAndValidTimestamp() throws Exception {
-        long candidate = prepared(), chef = service.createChef("윤남노").id();
+        long candidate = prepared(), chef = chefService.createChef("윤남노").id();
         for (String invalid : List.of(body(chef).replace("\"VISITED\"", "null"), body(chef).replace("\"방문 확인\"", "\" \""), body(chef).replace("\"timestampSeconds\":null", "\"timestampSeconds\":-1")))
             mvc.perform(post("/api/admin/candidates/" + candidate + "/mentions").with(csrf()).contentType("application/json").content(invalid)).andExpect(status().isBadRequest());
         assertThat(service.mentions()).isEmpty();
