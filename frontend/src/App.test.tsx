@@ -2,12 +2,14 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App';
-import { api } from './api';
-vi.mock('./api', () => ({ api: vi.fn() }));
-vi.mock('./KakaoMap', () => ({ default: ({ restaurants }) => <div data-testid="map">{restaurants.length} markers</div> }));
+import type { ApiOptions } from './api';
+import type { Restaurant } from './types';
+const { api } = vi.hoisted(() => ({ api: vi.fn<(path: string, options?: ApiOptions) => Promise<unknown>>() }));
+vi.mock('./api', async importOriginal => ({ ...await importOriginal<typeof import('./api')>(), api }));
+vi.mock('./KakaoMap', () => ({ default: ({ restaurants }: { restaurants: Restaurant[] }) => <div data-testid="map">{restaurants.length} markers</div> }));
 afterEach(cleanup);
 beforeEach(() => vi.resetAllMocks());
-const restaurant = { id: 1, name: '뽀요베리', roadAddress: '서울 마포구 월드컵로13길 55-15', placeUrl: 'http://place.map.kakao.com/1158460117', mentions: [{ mentionId: 1, chefName: '윤남노', videoId: 'RMTJPFKRbEk', videoTitle: '원본 영상', mentionType: 'VISITED', timestampSeconds: null }] };
+const restaurant: Restaurant = { id: 1, kakaoPlaceId: '1158460117', address: null, longitude: 126.90687, latitude: 37.554615, name: '뽀요베리', roadAddress: '서울 마포구 월드컵로13길 55-15', placeUrl: 'http://place.map.kakao.com/1158460117', mentions: [{ mentionId: 1, chefName: '윤남노', videoId: 'RMTJPFKRbEk', videoTitle: '원본 영상', mentionType: 'VISITED', timestampSeconds: null }] };
 
 describe('public and approval workflow', () => {
   it('shows empty approved list without invented restaurants', async () => {
@@ -47,7 +49,7 @@ describe('public and approval workflow', () => {
       if (path.endsWith('/places') && !options) return { candidates: [], complete: true };
       if (path.endsWith('/places')) return { complete: true, candidates: [{ id: '1158460117', name: '뽀요베리', roadAddress: '서울 마포구 월드컵로13길 55-15', placeUrl: restaurant.placeUrl }] };
     });
-    render(<App/>); fireEvent.click(screen.getByRole('button', { name: '관리자', exact: true }));
+    render(<App/>); fireEvent.click(screen.getByRole('button', { name: '관리자' }));
     const approve = await screen.findByRole('button', { name: '관계 승인하고 공개' });
     expect(approve).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Kakao 검색' }));

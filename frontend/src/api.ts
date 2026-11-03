@@ -1,0 +1,30 @@
+export type ApiOptions = { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' } & (
+  | { form: true; body?: Record<string, FormDataEntryValue> }
+  | { form?: false; body?: unknown }
+);
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
+}
+
+// T describes the backend JSON contract; it does not validate JSON at runtime.
+// Callers of endpoints with empty responses use the default null result.
+export async function api<T = null>(path: string, { method = 'GET', body, form }: ApiOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (method !== 'GET') {
+    const response = await fetch('/api/csrf');
+    if (!response.ok) throw new Error('보안 토큰을 가져오지 못했습니다. 다시 시도하세요.');
+    const csrf = await response.json() as { headerName: string; token: string };
+    headers[csrf.headerName] = csrf.token;
+    headers['Content-Type'] = form ? 'application/x-www-form-urlencoded' : 'application/json';
+  }
+  const response = await fetch('/api' + path, { method, headers, body: body === undefined ? undefined : form ? new URLSearchParams(Object.entries(body).map(([name, value]) => [name, String(value)])) : JSON.stringify(body) });
+  if (!response.ok) {
+    let message = response.status === 401 ? '관리자 로그인이 필요하거나 로그인 정보가 올바르지 않습니다.' : response.status === 403 ? '접근 권한 또는 보안 토큰을 확인하세요.' : '요청을 처리하지 못했습니다.';
+    try { message = (await response.json()).message || message; } catch { /* Empty security response. */ }
+    throw new Error(message);
+  }
+  if (response.status === 204) return null as T;
+  const text = await response.text();
+  return (text.trim() ? JSON.parse(text) : null) as T;
+}
