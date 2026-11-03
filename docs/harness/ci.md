@@ -24,7 +24,9 @@ Frontend 잠금 Vite 7의 Node 요구사항과 Vitest 4를 고려해 Node 22를 
 
 `backend/gradlew`는 Git에 실행 비트가 설정되어 있다. Wrapper 8.14.3의 distribution checksum은 기존 properties를 사용한다. 별도 시스템 Gradle을 설치하지 않는다.
 
-현재 build.gradle에는 의존성 전용 준비 태스크가 없다. workflow는 runner 임시 디렉터리에 작은 init script를 작성하여 `testRuntimeClasspath.resolve()`만 수행하는 `ciPrepareTestDependencies`를 등록한다. 이는 Wrapper·플러그인·테스트 런타임 의존성을 온라인으로 준비하며 저장소 설정을 수정하지 않는다. 단순 dependency 보고 태스크의 출력에 FAILED가 있어도 종료 코드가 성공일 수 있는 문제를 피하고, 실제 resolve 예외는 준비 실패로 전달한다. 준비 중 테스트·개발 DB migration을 실행하지 않는다.
+현재 build.gradle에는 의존성 전용 준비 태스크가 없다. workflow는 runner 임시 디렉터리에 작은 init script를 작성하여 `compileClasspath`, `runtimeClasspath`, `testCompileClasspath`, `testRuntimeClasspath`를 명시적으로 resolve하는 `ciPrepareTestDependencies`를 등록한다. Wrapper·플러그인과 현재 앱/테스트의 컴파일·런타임 의존성을 온라인으로 준비한다. compile-only 의존성은 런타임 classpath만으로 준비되지 않을 수 있다. 단순 dependency 보고 태스크의 출력에 FAILED가 있어도 종료 코드가 성공일 수 있는 문제를 피하고, 실제 resolve 예외는 준비 실패로 전달한다. 준비 중 컴파일·테스트·개발 DB migration을 실행하지 않는다.
+
+[settings.gradle](../../backend/settings.gradle)의 `pluginManagement.repositories`는 Maven Central, Gradle Plugin Portal 순서로 플러그인을 해석한다. build.gradle의 프로젝트 의존성 저장소와 플러그인 저장소는 별개다. Plugin Portal만 경유해 플러그인의 일반 라이브러리를 찾는 경로에 의존하지 않도록 Maven Central을 명시했으며, 다운로드 실패를 무시하거나 플러그인 버전을 변경하지 않는다. 근거: [Gradle 플러그인 저장소](https://docs.gradle.org/current/userguide/plugins_intermediate.html), [Plugin Portal 미러링 안내](https://plugins.gradle.org/docs/mirroring).
 
 ```bash
 # backend/ 기준. init script 내용은 workflow의 준비 Step 참조.
@@ -34,7 +36,9 @@ Frontend 잠금 Vite 7의 Node 요구사항과 Vitest 4를 고려해 Node 22를 
 ./gradlew --offline --no-daemon -Porg.gradle.java.installations.auto-download=false --rerun-tasks test
 ```
 
-캐시가 비어 있어도 온라인 준비가 필요한 의존성을 받아야 한다. 현재 단일 Gradle 프로젝트와 testRuntimeClasspath에 맞춘 최소 준비다. 향후 별도 configuration·플러그인·annotation processor 의존성이 생겨 offline 실행이 실패하면 준비/검증 로그로 원인을 보고한다. 온라인 테스트 재시도, offline 제거, 테스트 제외 또는 실패 무시는 하지 않는다.
+캐시가 비어 있어도 온라인 준비가 필요한 의존성을 받아야 한다. 현재 단일 Java Gradle 프로젝트의 컴파일·런타임 classpath에 맞춘 준비다. 향후 별도 configuration·플러그인·annotation processor 의존성이 생겨 offline 실행이 실패하면 준비/검증 로그로 원인을 보고한다. 온라인 테스트 재시도, offline 제거, 테스트 제외 또는 실패 무시는 하지 않는다.
+
+최초 실행에서 PR #8은 `testCompileClasspath`의 `org.apiguardian:apiguardian-api:1.1.2` 캐시 누락으로 compileTestJava가 실패했고 JUnit XML이 생성되지 않았다. main의 CI #2는 Plugin Portal을 통한 Spring Boot 플러그인 전이 의존성 조회 실패로 준비 단계에서 중단되어 테스트가 미실행됐다. 전자는 준비 대상 누락이 확인됐고, 후자는 해당 실행에서의 해석 실패가 확인됐으며 registry/redirect 장애 여부까지 확정하지 않는다. 위 수정의 정적 검토와 실제 CI 재실행 성공은 구분한다.
 
 테스트 시작 시각을 기록하고 `backend/build/test-results/test/TEST-*.xml` 중 그 이후 수정된 XML만 읽는다. `--rerun-tasks`로 테스트 재실행을 요구한다. 보고서 부재·XML 파싱 오류·누락/음수 카운트·테스트 0건·실패·오류·건너뜀·Gradle 비정상 결과는 실패다. Gradle 실패 후에도 보고서 검사는 실행되며 일부 보고서가 정상이어도 원래 Step 실패를 지우지 않는다. compile/environment 실패로 XML이 없으면 assertion 실패라고 단정하지 않고 로그를 확인한다.
 
