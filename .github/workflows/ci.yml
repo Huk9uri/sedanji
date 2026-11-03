@@ -52,11 +52,16 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          # Resolve the actual test runtime classpath; resolution errors fail preparation.
+          # Compile-only dependencies are not necessarily on the runtime classpath.
           cat > "$RUNNER_TEMP/sedanji-ci.init.gradle" <<'GRADLE'
           gradle.projectsEvaluated {
               rootProject.tasks.register('ciPrepareTestDependencies') {
-                  doLast { rootProject.configurations.testRuntimeClasspath.resolve() }
+                  doLast {
+                      ['compileClasspath', 'runtimeClasspath',
+                       'testCompileClasspath', 'testRuntimeClasspath'].each { name ->
+                          rootProject.configurations.getByName(name).resolve()
+                      }
+                  }
               }
           }
           GRADLE
