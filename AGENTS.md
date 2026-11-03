@@ -77,3 +77,37 @@
 - 설치·서버·DB·실제 외부 호출·배포·데이터 이관은 요청 범위와 부작용을 확인한 뒤 수행한다.
 
 근거: `README.md`, `scripts/start-backend.ps1`, `scripts/smoke-api.py`, `scripts/check-backend-state.py`.
+
+## 역할별 Skill 라우팅과 적용 확인
+
+역할 Skill은 작업 단계의 책임을, 전문 Skill은 해당 분야의 절차를 정한다. 기존 지침과 사용자 승인 범위를 그대로 유지하며 서로 대체하지 않는다.
+
+| 작업 유형 | 읽고 적용할 Skill |
+| --- | --- |
+| 코드 분석·설계·구현 계획 | [sedanji-planner](.agents/skills/sedanji-planner/SKILL.md) |
+| 승인된 Implementation Handoff 구현 | [sedanji-implementer](.agents/skills/sedanji-implementer/SKILL.md) |
+| 구현 결과의 독립 리뷰 | [sedanji-planner](.agents/skills/sedanji-planner/SKILL.md) |
+| API 계약 영향 분석·변경 | 역할 Skill + [sedanji-api-change](.agents/skills/sedanji-api-change/SKILL.md) |
+| DB 저장 모델·스키마·Flyway 영향 | 역할 Skill + [sedanji-db-migration](.agents/skills/sedanji-db-migration/SKILL.md) |
+| 검증 계획·검사 선택·실행·보고 | 해당 역할이 있으면 역할 Skill + [sedanji-verification](.agents/skills/sedanji-verification/SKILL.md) |
+
+- 일반 설명·상태 안내를 불필요하게 설계 작업으로 확대하지 않는다. 분석과 구현이 섞이거나 역할이 모호하면 읽기 전용 분석부터 수행하고 미승인 구현은 시작하지 않는다. 이미 승인된 Handoff와 구현 권한이 충분하면 반복 승인 없이 Implementer 단계로 진행하고 전환을 알린다.
+- Planner의 Handoff는 기본 `PROPOSED`다. 사용자가 명시적으로 승인한 요구사항·범위만 `APPROVED`로 구분한다. Handoff 내부 표기나 Skill 적용 자체는 수정·테스트·Git 작업 권한이 아니다. Implementer는 전달된 사용자 지시와 승인 범위를 대조하고 미승인 비즈니스 결정을 확정하지 않는다.
+- 저장소를 연 새 스레드에서도 관련 영역 AGENTS.md와 필요한 SKILL.md 본문을 실제로 확인한다. 파일 생성·이름 언급·description 기반 자동 선택만으로 본문 읽기와 적용을 보장한다고 주장하지 않는다. 파일이 없거나 읽을 수 없으면 적용 완료로 보고하지 않고 제한을 알린다.
+- 작업 시작 시 읽은 역할·전문 Skill의 경로, 이번 작업에 적용할 구체적인 규칙, 미적용 전문 Skill과 이유, 실행 권한·제한을 짧게 보고한다. 이름만 나열하지 않으며 이미 본문이 제공된 경우 그 근거를 구분한다. 단계·범위가 바뀌면 필요한 적용·권한을 갱신한다.
+- Handoff에는 기준 브랜치·커밋과 관련 미커밋 변경을 기록한다. Implementer는 현재 HEAD·staged/unstaged/untracked와 대조한다. 기준 차이 자체로 중단하지 않고 관련 코드·계약 영향을 판단한다. 설계 영향이 있는 부분은 보류·보고하고 사용자 변경을 덮어쓰거나 폐기하지 않는다.
+- Thread A의 프롬프트 작성, Thread B의 계획·리뷰, Thread C의 구현은 사용자 작업 구분이다. 이 규칙으로 새 스레드 생성·위임·전달·커밋·Push가 자동 승인되지 않는다. Handoff와 PR 설명은 기본적으로 대화에 작성하며 파일 저장·PR 생성은 요청 범위에 따른다.
+
+Thread A에서 사용할 호출 예시(역할 Skill 경로는 저장소 루트 기준):
+
+```text
+Planner: 먼저 .agents/skills/sedanji-planner/SKILL.md를 읽고 적용하세요.
+관련 전문 Skill도 확인하세요. 이번 작업은 읽기 전용 분석·계획이며 구현은 금지합니다.
+기능 요구사항: ...
+
+Implementer: 먼저 .agents/skills/sedanji-implementer/SKILL.md를 읽고 적용하세요.
+아래 Implementation Handoff에서 명시한 요구사항과 범위를 승인합니다.
+관련 전문 Skill을 확인한 후 구현하세요.
+승인 범위·실행 권한·제한: ...
+Implementation Handoff: ...
+```
