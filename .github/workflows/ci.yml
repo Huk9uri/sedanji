@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        id: java
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        id: gradle
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          validate-wrappers: true
+          dependency-graph: disabled
+          build-scan-publish: false
+      - name: Prepare Docker images
+        id: docker
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.OSType}}')" = linux
+          python3 --version
+          docker pull postgres:17-alpine
+          docker pull testcontainers/ryuk:0.14.0
+          docker image inspect postgres:17-alpine testcontainers/ryuk:0.14.0 --format '{{.RepoTags}} {{.Id}}'
+      - name: Prepare Gradle test dependencies (online)
+        id: dependencies
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          # Resolve the actual test runtime classpath; resolution errors fail preparation.
+          cat > "$RUNNER_TEMP/sedanji-ci.init.gradle" <<'GRADLE'
+          gradle.projectsEvaluated {
+              rootProject.tasks.register('ciPrepareTestDependencies') {
+                  doLast { rootProject.configurations.testRuntimeClasspath.resolve() }
+              }
+          }
+          GRADLE
+          ./gradlew --no-daemon -Porg.gradle.java.installations.auto-download=false --init-script "$RUNNER_TEMP/sedanji-ci.init.gradle" ciPrepareTestDependencies
+      - name: Backend tests (offline)
+        id: tests
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+          ./gradlew --offline --no-daemon -Porg.gradle.java.installations.auto-download=false --rerun-tasks test
+      - name: Validate fresh Backend JUnit reports
+        id: reports
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.tests.outcome != '' }}
+        env:
+          STARTED: ${{ steps.tests.outputs.started }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          def fail(message):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write(f'\nBackend reports: FAIL — {message}\n')
+              raise SystemExit(message)
+
+          try:
+              started = int(os.environ['STARTED'])
+          except (KeyError, ValueError):
+              fail('Test start marker missing; fresh execution cannot be confirmed.')
+          reports = [p for p in Path('backend/build/test-results/test').glob('TEST-*.xml')
+                     if p.stat().st_mtime >= started]
+          if not reports:
+              fail('No fresh JUnit XML; inspect Gradle logs for compilation, environment or execution failure.')
+          counts = dict(tests=0, failures=0, errors=0, skipped=0)
+          try:
+              for report in reports:
+                  suite = ET.parse(report).getroot()
+                  if suite.tag != 'testsuite':
+                      raise ValueError('Unexpected JUnit root')
+                  for key in counts:
+                      value = int(suite.attrib[key])
+                      if value < 0:
+                          raise ValueError('Negative JUnit count')
+                      counts[key] += value
+          except (ET.ParseError, KeyError, ValueError, OSError) as error:
+              fail(f'Invalid JUnit XML: {error}')
+          passed = (os.environ['TEST_OUTCOME'] == 'success' and counts['tests'] > 0
+                    and counts['failures'] == counts['errors'] == counts['skipped'] == 0)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f"\nBackend JUnit: {'PASS' if passed else 'FAIL'}; {counts}\n")
+          if not passed:
+              raise SystemExit('Gradle failed, no tests ran, or JUnit records failed/error/skipped tests.')
+          PY
+      - name: Upload Backend test reports
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.tests.outcome != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-test-reports
+          path: |
+            backend/build/test-results/test/TEST-*.xml
+            backend/build/reports/tests/test/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Backend execution summary
+        if: ${{ always() }}
+        env:
+          JAVA: ${{ steps.java.outcome }}
+          GRADLE: ${{ steps.gradle.outcome }}
+          DOCKER: ${{ steps.docker.outcome }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          REPORTS: ${{ steps.reports.outcome }}
+        run: |
+          {
+            echo '### Backend execution'
+            echo "Preparation: Java=$JAVA; Gradle=$GRADLE; Docker=$DOCKER; dependencies=$DEPENDENCIES"
+            echo "Verification: tests=$TESTS; JUnit guard=$REPORTS"
+            echo 'skipped/empty means NOT RUN, never PASS. Preparation failure is an environment/preparation failure; inspect Gradle logs and JUnit to distinguish assertion failure from execution/environment failure.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        id: node
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Prepare npm dependencies
+        id: install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend typecheck
+        id: typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: frontend
+        run: npm run typecheck --offline
+      - name: Frontend tests
+        id: tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: frontend
+        run: npm run test --offline
+      - name: Frontend build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: frontend
+        run: npm run build --offline
+      - name: Frontend execution summary
+        if: ${{ always() }}
+        env:
+          NODE: ${{ steps.node.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          {
+            echo '### Frontend execution'
+            echo "Preparation: Node=$NODE; npm ci=$INSTALL"
+            echo "Verification: typecheck=$TYPECHECK; tests=$TESTS; build=$BUILD"
+            echo 'success=PASS; failure=FAIL; skipped/empty=NOT RUN. Preparation failures are reported separately. Build includes the existing typecheck script.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  python:
+    name: Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: python
+        with:
+          python-version: '3.11'
+      - name: Python mocked unit tests
+        id: tests
+        run: python -B -m unittest -v test_youtube_poc test_kakao_local_poc
+      - name: Python execution summary
+        if: ${{ always() }}
+        env:
+          PYTHON: ${{ steps.python.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          {
+            echo '### Python execution'
+            echo "Preparation: Python=$PYTHON"
+            echo "Verification: mocked unit tests=$TESTS"
+            echo 'success=PASS; failure=FAIL; skipped/empty=NOT RUN. No pip dependencies or live PoC/API scripts are run.'
+          } >> "$GITHUB_STEP_SUMMARY"
