@@ -35,4 +35,10 @@ public class VideoService {
     public VideoEntity saveMetadata(Video metadata) {
         return videos.findById(metadata.id()).orElseGet(() -> videos.saveAndFlush(new VideoEntity(metadata)));
     }
+    @Transactional
+    public Video saveDirectMetadata(Video metadata) {
+        videos.insertMetadata(metadata.id(), metadata.title(), metadata.channelTitle(), metadata.publishedAt(),
+            metadata.description(), metadata.extractionWarning());
+        return videos.findById(metadata.id()).orElseThrow().toDto();
+    }
 }
