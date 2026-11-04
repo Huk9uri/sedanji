@@ -45,4 +45,19 @@ public class MentionEntity {
             evidence, reviewNote, reviewer == null ? null : reviewer.getUsername(), reviewedAt);
     }
     public Source toSource() { return new Source(id, chef.getName(), video.getId(), video.getTitle(), mentionType, timestampSeconds); }
+    public static MentionEntity direct(VideoEntity video, ChefEntity chef, RestaurantEntity restaurant,
+                                        MentionType type, Integer timestamp, String note, AdminUserEntity reviewer) {
+        if (video == null || chef == null || restaurant == null || type == null || reviewer == null || !reviewer.isEnabled()
+            || (timestamp != null && timestamp < 0) || (note != null && note.length() > 2000))
+            throw new IllegalArgumentException("직접 등록 필수 항목을 확인하세요.");
+        var mention = new MentionEntity();
+        mention.video = video; mention.chef = chef; mention.restaurant = restaurant;
+        mention.mentionType = type; mention.timestampSeconds = timestamp;
+        mention.reviewNote = note == null || note.isBlank() ? null : note.strip();
+        mention.reviewer = reviewer; mention.reviewedAt = OffsetDateTime.now();
+        mention.verificationStatus = "APPROVED"; mention.publicationStatus = "PUBLISHED";
+        return mention;
+    }
+    public Long getId() { return id; }
+    public long getVersion() { return version; }
 }
