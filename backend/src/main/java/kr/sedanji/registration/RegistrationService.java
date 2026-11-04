@@ -19,11 +19,24 @@ public class RegistrationService {
     private final RestaurantService restaurants;
     private final RestaurantCandidateService candidates;
     private final AdminUserRepository admins;
+    private final kr.sedanji.PlaceSelectionService selections;
+    private final kr.sedanji.chef.ChefRepository chefRepository;
+    private final kr.sedanji.video.VideoRepository videos;
+    private final kr.sedanji.mention.MentionRepository mentionRepository;
+    private final AdminAuditEventRepository audits;
+    private final AdminRequestReceiptRepository receipts;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
 
     public RegistrationService(ChefService chefs, MentionService mentions, RestaurantService restaurants,
-                               RestaurantCandidateService candidates, AdminUserRepository admins) {
+                               RestaurantCandidateService candidates, AdminUserRepository admins,
+                               kr.sedanji.PlaceSelectionService selections, kr.sedanji.chef.ChefRepository chefRepository,
+                               kr.sedanji.video.VideoRepository videos, kr.sedanji.mention.MentionRepository mentionRepository,
+                               AdminAuditEventRepository audits, AdminRequestReceiptRepository receipts,
+                               com.fasterxml.jackson.databind.ObjectMapper mapper) {
         this.chefs = chefs; this.mentions = mentions; this.restaurants = restaurants;
         this.candidates = candidates; this.admins = admins;
+        this.selections = selections; this.chefRepository = chefRepository; this.videos = videos;
+        this.mentionRepository = mentionRepository; this.audits = audits; this.receipts = receipts; this.mapper = mapper;
     }
     @Transactional
     public void approveFromCandidate(long candidateId, long chefId, String placeId, MentionType type,
@@ -37,5 +50,51 @@ public class RegistrationService {
         var restaurant = restaurants.getOrCreate(place);
         mentions.approve(chef, restaurant, candidate.getImportJob().getVideo(), candidate, type, timestamp, evidence, note, admin);
         candidates.resolveCandidate(candidateId);
+    }
+
+    @Transactional
+    public DirectRegistrationResult approveDirect(DirectRegistrationRequest request, String key, String hash,
+                                                   String reviewer, jakarta.servlet.http.HttpSession session,
+                                                   DirectRegistrationFacade.Attempt attempt) {
+        // 필수값, 범위 확인, 유효하지 않다면 validate() 안에서 예외 throw
+        request.validate();
+
+        var admin = admins.findForUpdate(reviewer).filter(AdminUserEntity::isEnabled)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "활성 관리자만 승인할 수 있습니다."));
+        var now = java.time.OffsetDateTime.now();
+        var receipt = receipts.findByAdminIdAndIdempotencyKey(admin.getId(), key);
+        if (receipt.isPresent() && receipt.get().active(now)) {
+            if (!receipt.get().matches(hash))
+                throw new DirectRegistrationException(409, "IDEMPOTENCY_CONFLICT", "다른 요청에 사용된 멱등키입니다.");
+            try { return mapper.readValue(receipt.get().body(), DirectRegistrationResult.class); }
+            catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("성공 영수증 형식 오류"); }
+        }
+        if (receipt.isPresent()) { receipts.delete(receipt.get()); receipts.flush(); }
+        //	토큰에서 서버 보관 장소 복원
+        var place = selections.resolve(request.placeSelectionToken(), reviewer, session);
+        attempt.placeId = place.id();
+        var chef = chefRepository.findById(request.chefId()).orElseThrow(() -> missing("셰프"));
+        var video = videos.findById(request.videoId()).orElseThrow(() -> missing("영상"));
+        //	같은 셰프·장소·영상 관계가 있는지 확인
+        mentionRepository.findRelationshipId(chef.getId(), place.id(), video.getId())
+            .ifPresent(id -> { throw DirectRegistrationException.duplicate(id); });
+        //	식당 재사용 또는 생성
+        var restaurant = restaurants.getOrCreate(place);
+        var mention = mentions.approveDirect(chef, restaurant, video, request.mentionType(), request.timestampSeconds(),
+            request.verificationNote(), admin);
+        var result = new DirectRegistrationResult(mention.getId(), restaurant.getId(), mention.getVersion(), "APPROVED", "PUBLISHED");
+        String body = json(result);
+        // Store the resulting relation snapshot; selection tokens and authentication data are excluded.
+        audits.saveAndFlush(new AdminAuditEventEntity(admin.getId(), result,
+            json(java.util.Map.of("result", result, "mention", mention.toDto()))));
+        receipts.saveAndFlush(new AdminRequestReceiptEntity(admin.getId(), key, hash, body, now));
+        return result;
+    }
+    private DirectRegistrationException missing(String resource) {
+        return new DirectRegistrationException(404, "RESOURCE_NOT_FOUND", resource + "을 찾을 수 없습니다.");
+    }
+    private String json(Object value) {
+        try { return mapper.writeValueAsString(value); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("승인 결과 저장 실패"); }
     }
 }
