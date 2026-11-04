@@ -34,6 +34,12 @@ public class MentionService {
     }
     // Registration owns the transaction, including place creation and candidate resolution.
     @Transactional(propagation = Propagation.MANDATORY)
+    public MentionEntity approveDirect(ChefEntity chef, RestaurantEntity restaurant, VideoEntity video,
+                                       MentionType type, Integer timestamp, String note, AdminUserEntity reviewer) {
+        return mentions.saveAndFlush(MentionEntity.direct(video, chef, restaurant, type, timestamp, note, reviewer));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
     public void approve(ChefEntity chef, RestaurantEntity restaurant, VideoEntity video,
                         RestaurantCandidateEntity candidate, MentionType type, Integer timestamp,
                         String evidence, String note, AdminUserEntity reviewer) {
