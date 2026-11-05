@@ -1,18 +1,32 @@
 # 세단지 도메인 설계
 
-갱신일: 2026-11-05. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
+갱신일: 2026-11-06. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
-이 문서는 관리자 1단계의 **목표 설계**와 현재 구현 차이를 함께 기록한다. 2026-11-02 V3 로컬 DB 적용·기존 승인 조회 호환 변경의 과거 기록은 [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)에 보존한다. 현재 코드에는 직접 장소 검색·영상 메타데이터 등록·직접 승인 API와 감사·멱등 Entity, #14 CREATE 초안 생성·조회·목록·부분 수정이 있다. 초안 승인·Revision 모델·정정·공개 중단/복구 API·새 UI는 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
+## #15 CREATE 초안 승인 — 현재 작업 트리
+
+2026-11-06 사용자가 설계와 별도로 Backend·테스트·문서 구현을 승인했다. HEAD `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`의 미커밋 작업 트리에 #15 승인 경로를 구현했다. [구현 Handoff](ISSUE_15_IMPLEMENTATION_HANDOFF.md)와 [승인 API 계약](ADMIN_API.md)을 따른다. 아래 목표 설명 중 CREATE 승인에 관한 내용은 이 현재 계약이 우선한다.
+
+- 저장된 CREATE/DRAFT만 승인한다. 필수 식당·셰프·영상·유형을 검증하고 선택 시점 null/0·메모를 보존한다. evidence·candidate는 생성하지 않는다.
+- 관리자 → 초안 WRITE 잠금과 expectedVersion으로 수정·승인 경합을 보호한다. Mention 생성, applied_mention_id 연결, APPLIED 전환·version 증가, 승인 감사·성공 영수증이 하나의 트랜잭션이다.
+- 동일 관리자·키·동일 요청의 유효 영수증은 24시간 200 재생한다. 다른 키·관리자 또는 만료 후 APPLIED 재승인은 409 DRAFT_ALREADY_APPLIED다. 기존 목표의 무조건 200 재승인 제안을 대체한다.
+- 다른 초안·직접·후보 승인의 같은 셰프·식당·영상은 상태·유형과 무관하게 중복 충돌이다. 기존 관계를 변경·자동 승인·복구하지 않는다. UNIQUE 실패 뒤 조회는 롤백 후 별도 경계에서만 하며 자동 재시도하지 않는다.
+- 식당은 저장/PATCH에서 이미 확정된다. 승인에서 장소 토큰을 재검증하거나 외부 API·식당 생성을 수행하지 않는다. 실패 시 기존 식당과 초안 생성 이력은 보존한다.
+- V3의 applied_mention_id·상태 CHECK·FK·관계 UNIQUE·감사·영수증을 사용하며 신규 migration·백필은 없다. 직접 승인은 초안 없이 유지한다. 정정·공개 제어·새 UI·모바일은 제외한다.
+- 승인 결과는 draftVersion과 mentionVersion을 구분한 200 JSON, 승인 전용 오류는 구조화한다. Security 빈 401/403과 기존 API 계약은 유지한다. Frontend 타입·래퍼·연결은 #17이다.
+
+승인 전용 facade·RegistrationService·apply 전이를 구현했으며 검증 결과는 구현 계획의 #15 실행 기록에서 구분한다. 실제 개발 DB 적용은 수행하지 않았다.
+
+이 문서는 관리자 1단계의 **목표 설계**와 현재 구현 차이를 함께 기록한다. 2026-11-02 V3 로컬 DB 적용·기존 승인 조회 호환 변경의 과거 기록은 [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)에 보존한다. 현재 코드에는 직접 장소 검색·영상 메타데이터 등록·직접 승인 API와 감사·멱등 Entity, #14 CREATE 초안 생성·조회·목록·부분 수정 및 #15 CREATE 승인이 있다. Revision 모델·정정·공개 중단/복구 API·새 UI는 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
 
 ## 현재 구현과 목표 설계의 경계 — #13·#14
 
-정적 확인 기준은 `feat/RegistrationService` / `d2c44a16f203c3468cceb3bd1b4bd1c02ed57bd4` 및 #14 작업 트리다. 현재 migration 파일은 V1~V3이며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
+현재 인계 기준은 `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`다. 아래 #14 작업 트리·검증 설명은 당시 기록이며 #14는 PR #23으로 병합됐다. 현재 migration 파일은 V1~V3이며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
 
 - `AdminAuditEventEntity`·`AdminRequestReceiptEntity`와 Repository는 직접 승인과 초안 저장에서 사용한다. 초안 수정은 감사만 기록한다. 테이블 준비만 된 상태와 구분하되 이력 조회·다른 관리 작업까지 완성됐다는 뜻은 아니다.
 - #14 작업 트리는 V3 mention_drafts Entity·Repository·Service·API를 추가한다. 식당 ID 또는 장소 토큰으로 CREATE/DRAFT를 저장하고 활성 관리자 공유·생성 멱등성·버전 보호·감사를 지원한다. 신규 migration은 없다. Frontend 타입 검사·테스트·빌드는 이전 검증에서 PASS이며 Backend도 Docker 실행 후 재검증에서 컴파일·테스트 137개 PASS(실패·skip 0, 종료 코드 0)다. RestaurantRevision·ChefRevision은 목표 모델이다.
 - 현재 `RegistrationService.approveDirect`는 초안 없이 관계·감사·영수증을 저장한다. #14 승인에서도 이를 유지하며 초안 승인은 #15 별도 범위다. 아래 ERD·상태 전이의 초안 경유 직접 승인 제안과 구분한다.
 - 현재 Video Entity·DTO에는 아래 설계의 source_check_status·확인 시각이 없다. 출처 재확인·관리자 필터는 후속 저장 모델/API 설계 대상이다(D6).
-- 공개 조건·3항목 관계 유일성·동명이인 허용·선택 메모·기존 장소 보존은 현재 코드에 반영됐다. #14 초안은 Mention을 만들지 않으며 중복 CREATE 초안은 허용한다. APPLIED는 조회만, CORRECTION은 이번 API에서 조회·수정하지 않는다. 초안 승인·정정·복구의 상태 전이까지 검증됐다고 확장하지 않는다.
+- 공개 조건·3항목 관계 유일성·동명이인 허용·선택 메모·기존 장소 보존은 현재 코드에 반영됐다. #14 저장은 Mention을 만들지 않으며 중복 CREATE 초안은 허용한다. #15만 관계 생성·APPLIED 연결을 수행하며 완료 초안은 수정하지 않는다. CORRECTION은 조회·수정·승인 대상이 아니다. 정정·복구까지 검증됐다고 확장하지 않는다.
 
 이하 ERD·제약·트랜잭션 절은 미구현 부분을 포함하는 목표다. 현재 계약과 차이·소비자 영향은 [API 현재 코드 계약](ADMIN_API.md)을 먼저 확인한다. #14 승인 범위를 넘어 목표 설계 전체의 코드·SQL 변경이나 신규 migration이 승인된 것은 아니다.
 
@@ -214,11 +228,11 @@ ImportJob → RestaurantCandidate → PlaceCandidate의 근거·상태를 유지
 1. 외부 조회는 짧은 DB 변경 트랜잭션 밖에서 수행한다. 검색 결과는 서버 세션에 임시 보관하고 인증 관리자에게 묶인 불투명 선택 토큰을 발급한다. 토큰 수명은 15분이며 만료 시 오류로 안내한다. Redis·새 검색 업무 테이블은 만들지 않는다.
 2. 임시 저장 시 토큰의 실제 장소를 조회하고 Kakao ID UNIQUE로 Restaurant을 조회/생성한다. 충돌 시 기존 식당을 재조회하며 기존 정보는 수정하지 않는다. 초안·이력 저장과 묶어 실패 시 롤백한다.
 3. 승인 시 초안/관계를 잠그고 기대 version·필수 FK·유형·관리자 활성 상태를 확인한다. 영상 조회 성공은 관계 검증을 대신하지 않는다.
-4. Mention의 3항목 UNIQUE를 최종 보장으로 사용한다. 중복이면 기존 관계 ID와 충돌을 관리자에게 반환하고 기존 값을 바꾸지 않는다. 같은 초안의 완료된 승인을 재시도하면 이미 적용된 결과를 반환한다.
+4. Mention의 3항목 UNIQUE를 최종 보장으로 사용한다. 중복이면 기존 관계 ID와 충돌을 관리자에게 반환하고 기존 값을 바꾸지 않는다. CREATE 초안은 유효한 동일 멱등 요청만 200 결과 재생하며, 다른 키·관리자·영수증 만료 후 완료 초안 재승인은 409 DRAFT_ALREADY_APPLIED다.
 5. 정정 재승인은 대상·초안을 잠그고 base_version과 대상 version을 비교한다. 제안된 관계 조합이 다른 기존 관계와 충돌하면 실패하며 자동 병합하지 않는다. FK 변경 전후와 이전 승인본을 이력에 보존한다.
 6. 공개 중단·복구·수정안 적용과 감사 이력은 하나의 트랜잭션이다. 조회가 중간 상태를 보지 않도록 한다. 공유 정보 정정은 본인 version을 사용한다.
 
-최초 ‘승인·공개’는 아직 저장하지 않은 양식도 받을 수 있다. 서버가 동일 트랜잭션에서 초안 생성과 승인을 수행하며 필수값 검증에 실패하면 새로운 식당·초안·관계를 남기지 않는다. 요청 재전송은 관리자별 Idempotency-Key와 성공 결과 매핑으로 중복 생성을 막는다. 구체 보관 구현은 API 문서를 따른다.
+저장하지 않은 양식의 직접 ‘승인·공개’는 기존 직접 승인 API를 유지한다. 초안 없이 식당 생성·재사용, 관계·감사·성공 영수증을 같은 트랜잭션으로 저장하며 실패 시 해당 신규 식당도 롤백한다. #15 저장 초안 승인은 기존 식당을 사용하므로 승인 실패가 이전 저장에서 생성된 식당을 삭제하지 않는다. 요청 재전송은 관리자별 Idempotency-Key와 성공 결과 매핑으로 처리하며 구체 계약은 API 문서를 따른다.
 
 ## 후속 마이그레이션 방침
 
