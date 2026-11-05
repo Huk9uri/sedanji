@@ -1,6 +1,43 @@
 # 관리자 식당 관리 1단계 구현 계획
 
-작성일: 2026-11-02. 현황 갱신일: 2026-11-05. 상태: 현재 코드 정적 점검과 후속 구현 계획. #13 문서 정리 후 #14 코드·테스트 작성 상태를 반영했다. 실제 DB·외부 API는 실행하지 않았다.
+작성일: 2026-11-02. 현황 갱신일: 2026-11-06. 상태: #15 현재 작업 트리와 #13·#14 과거 기록 및 후속 계획을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
+
+## #15 구현 작업 트리
+
+- 승인된 CREATE 초안 승인 API·strict 입력/전용 오류·NEVER facade와 RegistrationService 트랜잭션, apply 전이·상태 무관 관계 ID 조회·APPROVE_DRAFT 감사를 구현했다.
+- 기존 V3·관리자→초안 잠금·MentionService MANDATORY 생성·범용 200 영수증을 재사용한다. 직접/후보/#14 계약, APPROVED AND PUBLISHED 공개 조건과 내부 정보 비공개를 유지한다.
+- 기존 사용자 AGENTS.md·backend/AGENTS.md와 Planner 문서 변경을 보존한다. migration·Frontend·의존성·Git 이력 작업은 변경하지 않는다.
+- 입력·PG/MockMvc 테스트는 필수값·null/0·전용 오류·멱등/만료·상태별 전체 행 불변, 저장 단계별 롤백·실제 UNIQUE 경합·직접/후보 양방향·PATCH 양방향·보안/공개를 검증한다. 아래 설계 인계와 #14 이하는 과거 기록이다.
+
+### #15 이번 검증 결과 — 2026-11-06
+
+최종 명령: `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend`, 직후 `$LASTEXITCODE=0`.
+Backend 컴파일·테스트 168개(실패·skip 0, 신규 승인 통합 사례 30개와 입력 테스트 1개 포함), Frontend typecheck·테스트 11개·build는 각각 PASS/0이다. Backend bootJar는 요청 진입점에 없어 NOT RUN, Python은 관련 변경 없어 NOT RUN이다.
+
+최초 sandbox 실행은 AuthorizationManager로 종료 코드 1이었다. 정책 변경 없이 같은 허용 명령을 sandbox 밖에서 실행했다. 개발 중 추가 테스트의 컴파일·spy/JSON 비교 오류는 수정 후 재검증했다. 최초 Frontend/test는 App.test.tsx:56의 radio 탐색으로 FAIL/1이었으나 Frontend 파일 수정 없는 최종 재실행은 PASS다. 원인은 확정하지 않았으며 타이밍 의존 가능성이 남는다. 과거 실패를 최종 결과로 덮어쓰지 않는다.
+
+| 요구 범주 | 이번 실제 assertion |
+| --- | --- |
+| 정상 승인·입력 | 200 DTO·두 version·필수 참조·APPROVED/PUBLISHED, APPLIED/version+1/적용 ID, 생성자·생성 시각 보존, null과 0, missingFields·strict 정수·미지 필드·메모 길이·404/CORRECTION |
+| 원자성 | Mention 삽입 뒤·초안 flush·감사·receipt 실패 각각 관계/초안 전체 행/감사/receipt 수 복원, 기존 식당·생성 이력 및 만료 receipt 삭제 롤백 |
+| 감사·멱등 | actor/draft/mention/restaurant, 전후 스냅샷·receipt 결과 일치, 같은 키 순차/동시 재생, 다른 본문/초안/생성 경로 키 충돌, 다른 키/관리자/만료 후 APPLIED 충돌, 중단 후 재생이 복구하지 않음 |
+| 중복·동시성 | 상태 4종·유형 차이에도 기존 Mention 전체 행 불변. 별도 관리자/트랜잭션으로 동일 초안 성공 1회, 두 초안 사전 조회 barrier로 실제 UNIQUE 충돌·롤백 밖 조회 확인 |
+| 진입점 경합 | 초안 vs 직접/후보 각각 양방향 승리를 삽입 지점에서 제어. Mention 1개·식당 정보 보존, 패배 초안 전체 행/후보 disposition/감사/receipt 롤백. PATCH 양방향 stale/noneditable·version 1 |
+| 장소·외부 호출 | 신규 장소는 저장 때 생성·승인 때 추가 없음. 저장 세션 소실 후 승인·추가 외부 호출 0. 초안 저장/직접/후보의 동일 Kakao ID 3자 생성 경합에서 식당 1개·정보 보존 |
+| 공개·보안·DB | 상태 4종 중 APPROVED/PUBLISHED만 공개 식당/출처 포함, 내부 필드 비노출, 불법 공개 조합·잘못된 참조 FK 거부. 익명 401·USER/CSRF 403 빈 본문과 무쓰기·비활성 관리자 재생 거부 |
+| 기존 회귀 | 직접·후보·#14·V1~V3 이관 보존 테스트 유지 및 이번 실행 PASS. 신규 migration 없음 |
+
+한계: 실제 데드락·잠금 시간 초과/예상 밖 optimistic conflict의 강제 PG fixture, 장시간 부하·운영 데이터/배포·실제 외부 API·브라우저 E2E·모바일은 검증하지 않았다. 선택 입력의 DB 불법 음수/참조는 기존 제약을 해제하지 않는다. 저장 후 실제 시계 만료와 승인 연결은 별도 fixture가 없으며 세션 소실·외부 호출 0, 기존 토큰 만료 단위 테스트와 코드의 토큰 미참조가 근거다. Frontend 신규 계약 소비·멱등키/구조화 오류·UI는 #17 범위다.
+
+git diff --check 및 신규 파일 공백·참조 검사 통과. 기존 사용자 지침·Planner 인계 자료 보존, staged 없음. 설치·다운로드·이미지 pull·Docker 시작·개발/운영 DB·서버·실제 외부 호출·배포·fetch·브랜치 변경·commit·Push·PR 생성은 수행하지 않았다.
+
+## #15 설계 승인·Thread C 인계
+
+- 2026-11-06 사용자가 Planner Handoff 6번의 추천안 전체를 승인했다. [구현 계획서](ISSUE_15_IMPLEMENTATION_HANDOFF.md)에 기준 커밋·승인 정책·책임·API·원자성·시나리오별 assertion·검증 계획을 기록했다.
+- CREATE 초안 승인 성공/동일 유효 영수증 재생은 200, 다른 키·관리자·만료 후 APPLIED 재승인은 409다. 자동 재시도는 없고 직접 승인은 초안 없이 유지한다.
+- 기존 V3 사용, 신규 migration 없음. #15는 Backend·테스트·관련 문서, Frontend 타입·래퍼·연결은 #17이다. 정정·공개 제어·새 UI·모바일은 제외한다.
+- 이번 작업은 문서 갱신·계획서 작성만 수행한다. #15 코드 구현·테스트·빌드·DB·외부 API·Git 변경 작업은 실행하지 않는다. 설계 승인을 이번 스레드의 코드 실행 권한으로 확장하지 않는다.
+- 아래 #14·#13의 브랜치·검증 수치·작업 트리 설명은 당시 기록이다. 현재 인계 기준과 제한은 위 계획서를 우선한다.
 
 ## #14 작업 트리 갱신
 
