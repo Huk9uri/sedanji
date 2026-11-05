@@ -1,6 +1,17 @@
 # 관리자 식당 관리 1단계 구현 계획
 
-작성일: 2026-11-02. 현황 갱신일: 2026-11-05. 상태: 현재 코드 정적 점검과 후속 구현 계획. 이번 갱신은 문서만 변경하며 실행 코드·DB·테스트 실행을 포함하지 않는다.
+작성일: 2026-11-02. 현황 갱신일: 2026-11-05. 상태: 현재 코드 정적 점검과 후속 구현 계획. #13 문서 정리 후 #14 코드·테스트 작성 상태를 반영했다. 실제 DB·외부 API는 실행하지 않았다.
+
+## #14 작업 트리 갱신
+
+- 기준: feat/RegistrationService / d2c44a16f203c3468cceb3bd1b4bd1c02ed57bd4와 기존 문서·지침 변경 6개 파일을 보존한 작업 트리.
+- Handoff 3절의 추천안 10개 전체를 사용자가 승인했다. CREATE 초안 생성·단건·식당별 페이지·부분 수정, V3 JPA 매핑, 감사·생성 멱등성·동시 수정 보호를 구현했다. 신규 migration은 없다.
+- MentionDraftInput은 신규 API의 엄격 파싱과 누락/null 구분, MentionDraftService는 관리자 → 초안 잠금·상태·버전 검사·원자 저장을 담당한다. 상세 계약은 [ADMIN_API.md](ADMIN_API.md)의 #14 현재 계약을 따른다.
+- 입력 단위 테스트와 MockMvc/Testcontainers 통합 테스트에 null·0·누락, 멱등 재생·경로 충돌, 권한·CSRF, 생성·수정 롤백, 동시 수정·동시 생성, 공개 제외 assertion을 추가했다. 기존 직접·후보 승인 테스트는 유지했다.
+- 검증 명령 powershell.exe -NoProfile -File C:/workspace/sedanji/scripts/verify.ps1 -Backend -Frontend의 최초 샌드박스 실행은 AuthorizationManager에서 차단됐다. 정책 변경 없이 같은 명령을 샌드박스 밖에서 재실행한 결과 Frontend 타입 검사·테스트 11개·빌드 PASS(각 0), Backend는 Docker Engine 접근 실패로 NOT RUN, 전체 종료 코드 1이다. 이후 Docker 실행 후 동일 진입점의 -Backend 재검증에서 컴파일·테스트 137개가 모두 PASS(실패·skip 0, 전체 종료 코드 0)했다.
+- 후속 #15: 별도 초안 승인, 불완전 승인 거부, 수정/승인 경합·반복 승인 원자성. #17: Frontend 타입·래퍼·UI와 멱등키·구조화 오류·초안 재개 연결. 기존 직접 승인은 유지한다.
+
+아래 #13 점검은 당시 기록이다. 최신 초안 구현 상태는 이 #14 절을 우선하며 M1 전체 완료를 의미하지 않는다.
 
 ## 현재 진행 상태 — #13
 

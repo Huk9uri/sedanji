@@ -2,19 +2,19 @@
 
 갱신일: 2026-11-05. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
-이 문서는 관리자 1단계의 **목표 설계**와 현재 구현 차이를 함께 기록한다. 2026-11-02 V3 로컬 DB 적용·기존 승인 조회 호환 변경의 과거 기록은 [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)에 보존한다. 현재 코드에는 직접 장소 검색·영상 메타데이터 등록·직접 승인 API와 감사·멱등 Entity가 있다. 초안 API·Revision 모델·정정·공개 중단/복구 API·새 UI는 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
+이 문서는 관리자 1단계의 **목표 설계**와 현재 구현 차이를 함께 기록한다. 2026-11-02 V3 로컬 DB 적용·기존 승인 조회 호환 변경의 과거 기록은 [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)에 보존한다. 현재 코드에는 직접 장소 검색·영상 메타데이터 등록·직접 승인 API와 감사·멱등 Entity, #14 CREATE 초안 생성·조회·목록·부분 수정이 있다. 초안 승인·Revision 모델·정정·공개 중단/복구 API·새 UI는 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
 
-## 현재 구현과 목표 설계의 경계 — #13
+## 현재 구현과 목표 설계의 경계 — #13·#14
 
-정적 확인 기준은 `feat/RegistrationService` / `12ae955e92c33e98f24207b6e62ca35351e74b18`이다. 현재 migration 파일은 V1~V3이며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
+정적 확인 기준은 `feat/RegistrationService` / `d2c44a16f203c3468cceb3bd1b4bd1c02ed57bd4` 및 #14 작업 트리다. 현재 migration 파일은 V1~V3이며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
 
-- `AdminAuditEventEntity`·`AdminRequestReceiptEntity`와 Repository는 직접 승인에서 사용한다. 테이블 준비만 된 상태와 구분하되 이력 조회·다른 관리 작업까지 완성됐다는 뜻은 아니다.
-- `mention_drafts` 테이블은 있으나 초안 Entity·Repository·업무 서비스·API는 없다. RestaurantRevision·ChefRevision은 목표 모델이며 현재 migration/구현에 존재한다고 가정하지 않는다.
-- 현재 `RegistrationService.approveDirect`는 초안 없이 관계·감사·영수증을 저장한다. 아래 ERD·상태 전이의 초안 경유 직접 승인과 다르며, 초안을 항상 생성할지는 [API 계약](ADMIN_API.md)의 D1 결정 대기다.
+- `AdminAuditEventEntity`·`AdminRequestReceiptEntity`와 Repository는 직접 승인과 초안 저장에서 사용한다. 초안 수정은 감사만 기록한다. 테이블 준비만 된 상태와 구분하되 이력 조회·다른 관리 작업까지 완성됐다는 뜻은 아니다.
+- #14 작업 트리는 V3 mention_drafts Entity·Repository·Service·API를 추가한다. 식당 ID 또는 장소 토큰으로 CREATE/DRAFT를 저장하고 활성 관리자 공유·생성 멱등성·버전 보호·감사를 지원한다. 신규 migration은 없다. Frontend 타입 검사·테스트·빌드는 이전 검증에서 PASS이며 Backend도 Docker 실행 후 재검증에서 컴파일·테스트 137개 PASS(실패·skip 0, 종료 코드 0)다. RestaurantRevision·ChefRevision은 목표 모델이다.
+- 현재 `RegistrationService.approveDirect`는 초안 없이 관계·감사·영수증을 저장한다. #14 승인에서도 이를 유지하며 초안 승인은 #15 별도 범위다. 아래 ERD·상태 전이의 초안 경유 직접 승인 제안과 구분한다.
 - 현재 Video Entity·DTO에는 아래 설계의 source_check_status·확인 시각이 없다. 출처 재확인·관리자 필터는 후속 저장 모델/API 설계 대상이다(D6).
-- 공개 조건·3항목 관계 유일성·동명이인 허용·선택 메모·기존 장소 보존은 현재 코드에 반영됐다. 미구현 초안·정정·복구의 상태 전이까지 검증됐다고 확장하지 않는다.
+- 공개 조건·3항목 관계 유일성·동명이인 허용·선택 메모·기존 장소 보존은 현재 코드에 반영됐다. #14 초안은 Mention을 만들지 않으며 중복 CREATE 초안은 허용한다. APPLIED는 조회만, CORRECTION은 이번 API에서 조회·수정하지 않는다. 초안 승인·정정·복구의 상태 전이까지 검증됐다고 확장하지 않는다.
 
-이하 ERD·제약·트랜잭션 절은 미구현 부분을 포함하는 목표다. 현재 계약과 차이·소비자 영향은 [API 현재 코드 계약](ADMIN_API.md)을 먼저 확인한다. 이번 변경은 설계 차이를 없애기 위한 코드·SQL 변경이나 신규 migration 승인이 아니다.
+이하 ERD·제약·트랜잭션 절은 미구현 부분을 포함하는 목표다. 현재 계약과 차이·소비자 영향은 [API 현재 코드 계약](ADMIN_API.md)을 먼저 확인한다. #14 승인 범위를 넘어 목표 설계 전체의 코드·SQL 변경이나 신규 migration이 승인된 것은 아니다.
 
 ## 설계 범위
 

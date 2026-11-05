@@ -6,6 +6,8 @@
 
 ## 적용 범위
 
+현재 코드 보충(2026-11-05, #14 작업 트리): V3 초안 테이블을 Entity·Repository에 매핑하고 CREATE 초안 생성·조회·목록·부분 수정 및 감사·생성 멱등 저장을 추가했다. 새 migration이나 실제 DB 적용은 하지 않았다. 이번 검증은 최초 샌드박스 실행 차단 후 동일 명령을 재실행했다. Frontend 타입 검사·테스트 11개·빌드는 PASS(각 0), Backend는 Docker Engine 접근 실패로 NOT RUN, 전체 종료 코드 1이다. 이후 Docker 실행 후 verify.ps1 -Backend 재검증에서 컴파일·테스트 137개 PASS(실패·skip 0, 전체 종료 코드 0)를 확인했다. 실제 개발 DB는 변경하지 않았다. 아래 적용·통과 기록은 2026-11-02 당시 기록이다.
+
 `V3__prepare_direct_registration.sql`을 적용하고 V1·V2·V3 Flyway 검증을 완료했다. 기존 V1·V2는 변경하지 않았다. 정정·복구용 V4는 미적용이다.
 
 - 셰프 동명이인 허용, Chef·Restaurant·Mention version과 기본 생성 시각 추가.
