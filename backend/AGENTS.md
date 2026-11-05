@@ -6,12 +6,13 @@
 
 - Java 17, Spring Boot 3.5.16, Gradle Wrapper 8.14.3을 사용한다. 의존성·태스크는 `build.gradle`, 버전은 Wrapper 설정을 확인한다.
 - `src/main/java/kr/sedanji/`의 chef, restaurant, video, mention, restaurantcandidate, importjob, registration, admin은 도메인 중심 패키지다. 필요한 범위에서 Service·Repository·Entity 책임을 분리한다.
-- 현재 Controller는 `src/main/java/kr/sedanji/ApiController.java`, 응답 DTO는 `src/main/java/kr/sedanji/Models.java`, 오류 변환은 `src/main/java/kr/sedanji/ApiErrors.java`, 외부 연동은 `src/main/java/kr/sedanji/ExternalApis.java`에 모여 있다. 별도 common·infrastructure 패키지가 이미 있다고 가정하지 않는다.
-- V3는 직접 등록용 초안·감사·멱등 테이블을 준비했다. 신규 직접 등록·초안·정정·공개 중단·복구 API 전체 구현과 구분한다. `../docs/ADMIN_API.md`는 예정 계약이며 현재 API를 소급 변경하는 근거로 사용하지 않는다.
+- 기존 Controller·DTO·오류는 `src/main/java/kr/sedanji/ApiController.java`, `Models.java`, `ApiErrors.java`다. 신규 직접 등록은 `registration/DirectRegistrationController`·요청/결과 record·`DirectRegistrationErrors`로 분리됐다. 외부 연동은 `ExternalApis.java`다. 별도 common·infrastructure 패키지가 이미 있다고 가정하지 않는다.
+- V3의 감사·멱등 테이블은 직접 승인 Entity·Repository가 사용한다. 초안 테이블은 준비됐지만 초안·정정·공개 중단·복구 API는 없다. `../docs/ADMIN_API.md`의 현재 계약과 목표 절을 구분하고 목표를 현재 API 소급 변경의 근거로 사용하지 않는다.
 
 ## 트랜잭션과 동시성
 
 - 후보 기반 승인은 `registration/RegistrationService.approveFromCandidate`가 트랜잭션을 소유한다. 후보 잠금, 셰프·관리자·장소 검증, 식당 생성·재사용, Mention 저장, 후보 RESOLVED 처리는 함께 커밋·롤백되어야 한다.
+- 직접 승인은 `DirectRegistrationFacade`의 NEVER 경계에서 `RegistrationService.approveDirect`의 트랜잭션을 호출한다. 활성 관리자 행 잠금·세션 장소 검증·식당 재사용·관계·감사·24시간 영수증을 함께 처리한다. UNIQUE 충돌 후 기존 관계 조회는 롤백 완료 뒤 수행한다. 현재 직접 승인은 초안을 생성하지 않는다.
 - `restaurantcandidate/RestaurantCandidateService.getForUpdate`·`resolveCandidate`와 `mention/MentionService.approve`의 MANDATORY 경계를 보존한다. 잠금이 전체 승인 흐름에서 유지되도록 호출자의 트랜잭션을 확인한다.
 - `RestaurantCandidateRepository`의 PESSIMISTIC_WRITE, 관계 UNIQUE 제약, `RestaurantRepository`의 Kakao ID 기반 atomic upsert를 우회하지 않는다. upsert는 현재 `on conflict ... do nothing`이며 기존 식당 이름·주소를 덮어쓰지 않는다.
 - 같은 셰프·식당·영상은 유형이 달라도 중복 관계다. 동명이인 셰프를 이름만으로 합치지 않는다.
@@ -34,6 +35,7 @@
 
 - 장소 매칭은 관계 승인이 아니다. 후보 추출·장소 검색·후보 제외만으로 Mention이나 공개 식당을 만들지 않는다. 성공한 빈 검색과 외부 호출 실패를 구분한다.
 - 현재 후보 기반 승인은 명시적 Chef·Restaurant·출처 Video·언급 유형·비어 있지 않은 evidence와 활성 관리자를 요구한다. 후보에서 서버가 확보한 장소만 선택할 수 있으며 후보와 관계의 영상이 같아야 한다.
+- 직접 승인은 세션 장소 선택 토큰·기존 셰프·영상·유형과 활성 관리자가 필요하다. 자유 입력 evidence는 요구하지 않고 `verificationNote`는 선택이다. 후보 승인 evidence 규칙을 직접 승인에 일괄 적용하지 않는다.
 - `timestampSeconds`는 미확인일 때 null, 확인된 0초는 0이다. 음수는 거부하고 확인되지 않은 시점을 생성하지 않는다.
 - 현재 서버에서 검토 메모 note는 선택이며 빈 값은 null로 저장한다. 기존 웹은 아직 메모를 필수로 요구한다. 이 불일치를 API 변경 시 함께 검토하되 임의로 서버 필수 조건을 추가하지 않는다.
 - 공개 식당과 공개 출처 모두 `verificationStatus=APPROVED` 및 `publicationStatus=PUBLISHED`를 적용한다. 중단된 관계를 다른 공개 관계에 섞지 않는다.
@@ -44,8 +46,9 @@
 ## DTO·API 계약
 
 - JPA Entity나 외부 JsonNode를 그대로 API 응답으로 노출하지 않는다. 현재 Java record DTO와 toDto·toSource 경계를 유지한다.
-- 요청은 `ApiController`의 Bean Validation과 서비스의 도메인 검증을 함께 확인한다. DB 제약을 UI 검증만으로 대체하지 않는다.
+- 요청은 `ApiController`·`DirectRegistrationController`의 Bean Validation과 서비스의 도메인 검증을 함께 확인한다. DB 제약을 UI 검증만으로 대체하지 않는다.
 - 현재 오류 변환은 `ApiErrors`: 입력 400, 외부 API 실패 502, DB 저장 충돌 409 등이다. Security의 401·403은 빈 응답일 수 있다. 내부 예외·외부 원문 오류·비밀정보를 반환하지 않는다.
+- 신규 Controller 전용 `DirectRegistrationErrors`는 code/message와 중복 관계 existingMentionId를 처리한다. 모든 오류에 code가 있다고 가정하지 않는다. 직접 승인·메타데이터 등록은 JSON 201이며 기존 빈 응답과 구분한다. 상세 필드·경로·멱등키는 `../docs/ADMIN_API.md`의 현재 계약을 확인한다.
 - 현재 후보·관계 생성은 빈 201, 로그인·로그아웃·후보 제외는 204인 경로가 있다. 예정 계약의 JSON 성공 응답·페이지 구조를 현재 전체 API에 적용된 것으로 간주하지 않는다.
 - API 변경 전후 `../frontend/src/api.ts`, `../frontend/src/App.tsx`, `../frontend/src/features/admin/CandidateReviewCard.tsx`와 테스트·호출 스크립트를 검색한다. 필드·null·상태 코드·인증·CSRF·입력 제약·갱신 흐름의 양쪽 영향을 보고한다.
 
