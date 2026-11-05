@@ -46,6 +46,19 @@ public class MentionDraftEntity {
         updatedAt = now.isAfter(updatedAt) ? now : updatedAt.plusNanos(1000);
     }
     public long getId() { return id; }
+    public Long getChefId() { return chefId; }
+    public String getVideoId() { return videoId; }
+    public MentionType getMentionType() { return mentionType; }
+    public Integer getTimestampSeconds() { return timestampSeconds; }
+    public String getVerificationNote() { return verificationNote; }
+    public Long getAppliedMentionId() { return appliedMentionId; }
+    public void apply(long mentionId, long actor) {
+        if (!isEditable() || chefId == null || videoId == null || mentionType == null || mentionId < 1)
+            throw new IllegalStateException("승인할 수 없는 초안입니다.");
+        appliedMentionId = mentionId; status = "APPLIED"; updatedBy = actor;
+        var now = OffsetDateTime.now(java.time.ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        updatedAt = now.isAfter(updatedAt) ? now : updatedAt.plusNanos(1000);
+    }
     public long getRestaurantId() { return restaurantId; }
     public long getVersion() { return version; }
     public boolean isCreate() { return "CREATE".equals(kind); }
