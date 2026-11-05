@@ -1,6 +1,114 @@
 # 관리자 식당 관리 API 계약
 
-갱신일: 2026-11-02. 상태: 구현 예정 계약. 현재 실행 중인 API와 구분한다. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+갱신일: 2026-11-05. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+
+## 현재 코드 계약 — 2026-11-05 정적 확인
+
+기준: `feat/RegistrationService` / `d2c44a16f203c3468cceb3bd1b4bd1c02ed57bd4` 및 Issue #14 작업 트리. 다음은 로컬 소스 기준이며 배포 서버 응답·DB 적용 상태·테스트 통과를 이번에 확인한 것은 아니다. 이 절 뒤의 **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
+
+경로는 아래 표에서 `/api/admin` 기준이다. DB 관리자 세션·ADMIN·CSRF 보호는 유지한다.
+
+| 경로 | 현재 요청·응답·부수효과 |
+| --- | --- |
+| GET `/places?query=...` | 200. query는 공백만 입력 불가·최대 100자. `{candidates:[{placeSelectionToken,place:{id,name,roadAddress,address,longitude,latitude,placeUrl}}],totalCount,complete}`. 검색만으로 업무 DB 자료를 만들지 않음 |
+| POST `/videos/metadata` | `{url}`(필수·최대 500자). 후보 추출 없이 기존 영상 재사용 또는 공식 메타데이터 등록. 신규·재사용 모두 201, `Models.Video` 직접 반환 |
+| POST `/mentions` | 아래 직접 승인 요청과 `Idempotency-Key`(필수·비공백·최대 128자). 201 `{mentionId,restaurantId,version,verificationStatus,publicationStatus}`. 초안은 생성하지 않으며 `draftId` 없음 |
+| POST `/mention-drafts` | CREATE 초안 생성. 필수 장소·멱등키, 201 상세 JSON. 아래 #14 계약 참조 |
+| GET `/mention-drafts/{id}` | CREATE 초안 상세 200. DRAFT·APPLIED 조회 가능 |
+| GET `/restaurants/{restaurantId}/mention-drafts` | CREATE 초안 식당별 페이지, 200 페이지 JSON |
+| PATCH `/mention-drafts/{id}` | DRAFT 부분 수정. expectedVersion 필수, 200 상세 JSON |
+| GET / POST `/chefs` | GET은 검색·페이지 없는 `{id,name}` 배열. POST `{name}`은 필수·최대 100자, 200 Chef. 동명 신규 생성 가능. 현재 이 경로에는 멱등 영수증 처리 없음 |
+| GET / POST `/videos` | GET은 Video 배열. POST `{url}`은 기존 영상 수집·설명란 후보 추출 흐름이며 200 Video. 메타데이터 전용 API와 구분 |
+| GET `/mentions`, GET `/candidates` 및 `/candidates/...` | 기존 관계·후보 조회·검색·승인·제외 유지. 후보 승인·수동 추가는 빈 201, 제외는 204. 후보 승인 입력은 `evidence` 필수·`note` 선택 |
+
+직접 승인 요청은 `placeSelectionToken`, 양의 정수 `chefId`, 11자리 `videoId`, `mentionType`이 필수다. `timestampSeconds`는 null 또는 0 이상 int 정수, `verificationNote`는 선택·최대 2,000자이며 공백은 null로 저장한다. 직접 승인은 토큰만 받으며 #14 초안 API는 기존 restaurantId도 지원한다. 직접 승인은 자유 입력 evidence를 요구하지 않지만 기존 후보 승인은 근거 입력을 요구한다.
+
+장소 토큰은 관리자·세션에 묶여 15분 유효하며 최대 45개 후보를 담은 검색 묶음을 최근 5개 보관한다. 응답에 `selectionExpiresAt`은 없다. 주소 미제공은 null, 장소 URL은 검증된 Kakao ID로 생성한다. 완전하지 않은 검색은 `complete=false`로 반환한다.
+
+직접 승인에서는 식당 생성·재사용, 관계 승인, 감사 이벤트, 24시간 멱등 영수증을 하나의 트랜잭션으로 저장한다. 같은 관리자·키·요청의 유효 영수증 재생은 세션 검색 자료가 없어져도 같은 결과를 201로 반환한다. 다른 요청은 409, 만료 후에는 관계 중복 제약으로 재생성을 막는다. 기존 식당 이름·주소는 재사용 때 덮어쓰지 않는다. 후보·초안 생성 없이 관계가 APPROVED/PUBLISHED가 되며 공개 조회는 두 상태를 모두 검사한다.
+
+현재 Video는 `id/title/channelTitle/publishedAt/description/extractionWarning`이다. `sourceCheckStatus/sourceCheckedAt`, 재사용 여부 래퍼, 출처 재확인 API는 없다.
+
+### 현재 오류와 소비자
+
+- `DirectRegistrationErrors`는 신규 Controller 범위에서 400 `INVALID_INPUT`, 404 `RESOURCE_NOT_FOUND`, 409 `DUPLICATE_RELATION`(existingMentionId 포함)·`IDEMPOTENCY_CONFLICT`, 410 `PLACE_SELECTION_EXPIRED`를 `code/message`로 변환한다. 모든 오류가 이 형식은 아니다.
+- 외부 실패는 기존 `ApiErrors`의 502 `message` 응답을 사용한다. 목표의 422 출처 오류·503/504 분류·`fieldErrors/retryable`은 구현 완료가 아니다. 보안 401·403은 빈 본문일 수 있다.
+- `frontend/src/App.tsx`·`CandidateReviewCard.tsx`는 기존 후보 경로를 사용하며 신규 직접 등록 API 소비 화면은 없다. `api.ts`는 CSRF·JSON/폼·빈 응답을 처리하지만 사용자 지정 헤더 전달과 구조화 오류 보존은 지원하지 않는다. 신규 화면 연결 시 멱등키·중복 ID·만료 오류 처리가 필요하다.
+- 기존 후보 화면의 검토 메모는 필수지만 Backend는 선택이다. 이를 서버 필수 규칙으로 바꾸지 않으며 UI 수정은 후속 구현 범위다.
+- `scripts/smoke-api.py`, `scripts/check-backend-state.py`도 기존 조회 경로를 소비한다. 영상 경로·응답 변경 때 함께 검토하며 이번에는 실행하지 않았다.
+
+근거: `backend/src/main/java/kr/sedanji/`의 `ApiController`, `Models`, `PlaceSelectionService`, `registration/DirectRegistrationController`, `DirectRegistrationRequest`, `DirectRegistrationResult`, `DirectRegistrationFacade`, `RegistrationService`, `DirectRegistrationErrors`, `video/VideoMetadataService` 및 Frontend 소비 코드.
+
+### #14 CREATE 초안 — 승인된 현재 계약
+
+모든 경로는 관리자 세션·ADMIN을 요구하며 POST·PATCH는 CSRF를 유지한다. 서비스에서도 활성 관리자를 확인한다. 활성 관리자끼리 조회·수정을 공유하고 작성자·수정자는 ID로 기록한다.
+
+생성 입력:
+
+```typescript
+{
+  restaurantId?: number;
+  placeSelectionToken?: string;
+  chefId?: number | null;
+  videoId?: string | null;
+  mentionType?: 'REGULAR' | 'RECOMMENDED' | 'VISITED' | 'MENTIONED' | null;
+  timestampSeconds?: number | null;
+  verificationNote?: string | null;
+}
+```
+
+- 유효한 양의 정수 restaurantId 또는 비공백·최대 100자 장소 토큰 중 정확히 하나를 제출한다. 장소 null·빈 토큰·두 필드 동시 제출은 400이다. 토큰은 기존 관리자·세션 검색 자료로 검증하고 외부 API는 호출하지 않는다.
+- 선택 관계 필드의 생략·null은 허용한다. 입력한 Chef·Video·Restaurant 참조는 실제 존재해야 한다. videoId는 비어 있지 않은 최대 11자 문자열이다.
+- 시점은 null 또는 0..2147483647 정수다. 메모는 원문 최대 2000자를 검사한 다음 trim하고 빈 값을 null로 저장한다.
+- 숫자 문자열·소수·범위 초과·잘못된 enum·알 수 없는 필드·서버 관리 필드는 400이다. kind/status/작성자/적용 관계/검증·공개 상태는 지정할 수 없다. 이 엄격 파싱은 신규 초안 API에 한정한다.
+- 명시적 초안 저장 시 Restaurant을 생성·재사용하며 기존 Kakao ID 장소 정보를 덮어쓰지 않는다. Mention은 만들지 않고 동일 관계 조합의 CREATE 초안 중복은 허용한다. 관계 중복 차단은 최종 승인 책임이다.
+
+PATCH는 expectedVersion(필수·null 불가·0 이상 정수)과 하나 이상의 변경 필드가 필요하다. 누락은 유지, 선택 관계 필드 null은 해제다. 빈 영상 ID·빈 유형은 400, 빈/공백 메모는 null이다. 장소 필드 모두 생략 시 유지, 제출 시 생성과 같은 규칙으로 교체한다. 같은 값을 제출해도 성공 시 version과 updatedAt을 정확히 한 번 갱신한다. 이전 버전 재시도는 409이며 수정 영수증은 만들지 않는다.
+
+상세 응답:
+
+```text
+id, kind, status, version,
+restaurant: {id,kakaoPlaceId,name,roadAddress,address,longitude,latitude,placeUrl},
+chefId, videoId, mentionType, timestampSeconds, verificationNote,
+candidateId, appliedMentionId, createdBy, updatedBy, createdAt, updatedAt
+```
+
+선택값은 명시적 null, 관리자는 ID만 반환한다. #14 생성은 CREATE/DRAFT/version=0, candidateId/appliedMentionId=null이다. 목록은 CREATE만 포함하고 page=0, size=20(1..100), status=DRAFT(또는 APPLIED), updatedAt DESC·id DESC다. `{items,totalElements,page,size,hasNext}`를 반환한다. 기존 식당에 초안이 없으면 빈 목록, 없는 식당은 404다. APPLIED는 조회만 허용하며 CORRECTION은 이번 API의 조회·수정 대상이 아니다.
+
+생성은 관리자별 필수 Idempotency-Key(비공백·최대 128자)로 24시간 성공 결과를 재생한다. 메서드·경로·정규화 요청을 해시하며 같은 관리자·키의 다른 본문·경로는 409다. 활성 관리자 확인 후 유효 영수증은 세션 검색 자료가 없어도 재생한다. 토큰 원문은 감사·영수증에 저장하지 않는다. 24시간 만료 후 동일 초안의 영구 중복 방지는 보장하지 않는다. 기존 직접 승인 영수증 형식·해시·201 재생은 유지한다.
+
+초안·새 식당·감사·생성 영수증은 함께 커밋/롤백한다. DRAFT_CREATED는 생성 후, DRAFT_UPDATED는 전후 스냅샷을 기록하며 감사는 추가 전용이다. PATCH는 관리자 → 초안 순서로 잠근 후 expectedVersion을 비교하고 flush 후 실제 version을 응답·감사에 기록한다.
+
+| 상태 | code | 추가 필드 |
+| --- | --- | --- |
+| 400 | INVALID_INPUT | 없음 |
+| 404 | RESOURCE_NOT_FOUND | 없음 |
+| 409 | STALE_VERSION | currentVersion |
+| 409 | DRAFT_NOT_EDITABLE / IDEMPOTENCY_CONFLICT | 없음 |
+| 410 | PLACE_SELECTION_EXPIRED | 없음 |
+| 500 | INTERNAL_ERROR | 내부 예외·DB 원문 없음 |
+
+401·403은 기존 보안 응답을 유지하며 빈 본문일 수 있다. 초안만 있는 식당은 공개하지 않으며 APPROVED AND PUBLISHED를 유지한다. 초안 승인(#15), 정정·공개 제어, Frontend 타입·래퍼·UI(#17)는 후속 범위다. 기존 직접 승인은 초안 생성 없이 유지한다.
+
+검증 상태: 입력 단위·API·트랜잭션·동시성 테스트 소스를 추가했다. verify.ps1 -Backend -Frontend의 최초 샌드박스 실행은 AuthorizationManager에서 차단됐다. 정책 변경 없이 동일 명령을 샌드박스 밖에서 재실행한 결과 Frontend 타입 검사·테스트 11개·빌드는 PASS(각 종료 코드 0), Backend는 Docker Engine 접근 실패로 NOT RUN이다. 이후 Docker 실행 후 verify.ps1 -Backend를 재실행하여 컴파일·테스트 137개가 모두 PASS(실패·skip 0, 전체 종료 코드 0)했다. 실제 개발 DB·외부 API·배포 상태는 미검증이다.
+
+### 목표와의 차이 및 결정 상태
+
+| ID | 현재 → 기존 목표 설계 | 후속 검토 |
+| --- | --- | --- |
+| D1 | 초안 없이 직접 승인 → 기존 목표의 초안 경유 직접 승인 | #14 승인: 기존 직접 승인 유지. 초안 승인은 #15 별도 연결 |
+| D2 | 중첩 candidates/place·만료 시각 없음 → 평탄한 items·selectionExpiresAt | #17 전에 응답 형식·만료 안내 계약 결정. 이름만 바꾸는 소급 변경 금지 |
+| D3 | `/videos` 후보 수집 + `/videos/metadata` 전용 → `/videos` 메타데이터 전용 | #17 전에 분리 경로 유지 또는 호환 전환 계획 결정. 기존 소비자의 후보 추출을 깨뜨리지 않음 |
+| D4 | 초안은 restaurantId 또는 토큰 지원, 직접 승인은 토큰 유지 | #14 승인·구현. #15·#18 소비 흐름은 후속 |
+| D5 | 직접 승인·초안 생성 멱등 처리 → 셰프·정정 생성까지 확장 | #14 승인·구현. 다른 생성 경로는 후속 |
+| D6 | 출처 확인 상태·재확인 API 없음 → 관리자 재확인·필터 | #16·#18 전에 저장 모델·실패 보존·판정 기준 설계. 영상 접근 불가만으로 관계를 숨기지 않음 |
+
+D1·D4·D5의 #14 범위는 사용자 승인에 따라 위 현재 계약으로 구현했다. 나머지 항목과 후속 범위는 미정이며 문서 전체를 구현 승인으로 간주하지 않는다.
+
+## 목표 설계 — 미구현 부분과 전환안 포함
+
+아래는 2026-11-02 설계 본문을 보존한 것이다. 위 현재 계약과 다른 경로·응답·상태·저장 흐름은 결정 및 후속 구현 전까지 호출 가능한 계약으로 취급하지 않는다. 특히 초안 경유 직접 승인과 초안 저장 시 관계 중복 거부 제안은 #14 확정 계약과 다르므로 위 현재 계약을 우선한다.
 
 ## 공통
 
