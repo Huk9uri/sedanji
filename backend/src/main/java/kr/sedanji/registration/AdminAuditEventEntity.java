@@ -28,4 +28,9 @@ public class AdminAuditEventEntity {
         event.beforeValue = before; event.afterValue = after; event.occurredAt = OffsetDateTime.now();
         return event;
     }
+    public static AdminAuditEventEntity approveDraft(long actor, long draft, long mention, long restaurant, String before, String after) {
+        var event = draft(actor, draft, restaurant, before, after);
+        event.action = "APPROVE_DRAFT"; event.mentionId = mention;
+        return event;
+    }
 }

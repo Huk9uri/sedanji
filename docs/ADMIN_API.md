@@ -1,10 +1,10 @@
 # 관리자 식당 관리 API 계약
 
-갱신일: 2026-11-05. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+갱신일: 2026-11-06. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
 
-## 현재 코드 계약 — 2026-11-05 정적 확인
+## 현재 코드 계약 — #14·#15 작업 트리
 
-기준: `feat/RegistrationService` / `d2c44a16f203c3468cceb3bd1b4bd1c02ed57bd4` 및 Issue #14 작업 트리. 다음은 로컬 소스 기준이며 배포 서버 응답·DB 적용 상태·테스트 통과를 이번에 확인한 것은 아니다. 이 절 뒤의 **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
+기준: `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`와 #15 미커밋 구현. #14의 PR #23 병합은 이전 기록이며 로컬에 main 병합 커밋 객체가 없어 이번에 파일 동일성을 재확인하지 못했다(fetch 미실행). 다음은 로컬 소스 계약이며 배포 서버·개발 DB 상태를 뜻하지 않는다. **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
 
 경로는 아래 표에서 `/api/admin` 기준이다. DB 관리자 세션·ADMIN·CSRF 보호는 유지한다.
 
@@ -17,6 +17,7 @@
 | GET `/mention-drafts/{id}` | CREATE 초안 상세 200. DRAFT·APPLIED 조회 가능 |
 | GET `/restaurants/{restaurantId}/mention-drafts` | CREATE 초안 식당별 페이지, 200 페이지 JSON |
 | PATCH `/mention-drafts/{id}` | DRAFT 부분 수정. expectedVersion 필수, 200 상세 JSON |
+| POST `/mention-drafts/{id}/approve` | 저장된 CREATE 초안 승인. expectedVersion·멱등키 필수, 아래 #15의 200 결과·전용 오류 |
 | GET / POST `/chefs` | GET은 검색·페이지 없는 `{id,name}` 배열. POST `{name}`은 필수·최대 100자, 200 Chef. 동명 신규 생성 가능. 현재 이 경로에는 멱등 영수증 처리 없음 |
 | GET / POST `/videos` | GET은 Video 배열. POST `{url}`은 기존 영상 수집·설명란 후보 추출 흐름이며 200 Video. 메타데이터 전용 API와 구분 |
 | GET `/mentions`, GET `/candidates` 및 `/candidates/...` | 기존 관계·후보 조회·검색·승인·제외 유지. 후보 승인·수동 추가는 빈 201, 제외는 204. 후보 승인 입력은 `evidence` 필수·`note` 선택 |
@@ -89,22 +90,54 @@ candidateId, appliedMentionId, createdBy, updatedBy, createdAt, updatedAt
 | 410 | PLACE_SELECTION_EXPIRED | 없음 |
 | 500 | INTERNAL_ERROR | 내부 예외·DB 원문 없음 |
 
-401·403은 기존 보안 응답을 유지하며 빈 본문일 수 있다. 초안만 있는 식당은 공개하지 않으며 APPROVED AND PUBLISHED를 유지한다. 초안 승인(#15), 정정·공개 제어, Frontend 타입·래퍼·UI(#17)는 후속 범위다. 기존 직접 승인은 초안 생성 없이 유지한다.
+401·403은 기존 보안 응답을 유지하며 빈 본문일 수 있다. 초안만 있는 식당은 공개하지 않으며 APPROVED AND PUBLISHED를 유지한다. 초안 승인은 아래 #15 계약으로 구현했다. 정정·공개 제어, Frontend 타입·래퍼·UI(#17)는 후속 범위다. 기존 직접 승인은 초안 생성 없이 유지한다.
 
 검증 상태: 입력 단위·API·트랜잭션·동시성 테스트 소스를 추가했다. verify.ps1 -Backend -Frontend의 최초 샌드박스 실행은 AuthorizationManager에서 차단됐다. 정책 변경 없이 동일 명령을 샌드박스 밖에서 재실행한 결과 Frontend 타입 검사·테스트 11개·빌드는 PASS(각 종료 코드 0), Backend는 Docker Engine 접근 실패로 NOT RUN이다. 이후 Docker 실행 후 verify.ps1 -Backend를 재실행하여 컴파일·테스트 137개가 모두 PASS(실패·skip 0, 전체 종료 코드 0)했다. 실제 개발 DB·외부 API·배포 상태는 미검증이다.
+
+## #15 CREATE 초안 승인 — 현재 작업 트리 계약
+
+2026-11-06 별도 Implementer 지시로 Backend·테스트·관련 문서 구현과 기존 환경 검증을 승인받았다. `MentionDraftApprovalController`의 전용 strict 입력·오류, NEVER facade, `RegistrationService.approveDraft` 트랜잭션을 구현했다. 상세 승인 범위는 [Thread C Handoff](ISSUE_15_IMPLEMENTATION_HANDOFF.md)를 따른다. 신규 migration·Frontend 변경은 없다.
+
+이번 최종 `verify.ps1 -Backend -Frontend`는 종료 코드 0: Backend 168개(실패·skip 0), Frontend 타입 검사·테스트 11개·빌드 PASS다. 최초 실패·재검증과 시나리오 assertion·검증 공백은 [#15 검증 기록](ADMIN_IMPLEMENTATION_PLAN.md)에 구분했다. 실제 개발 DB·외부 API·배포·Frontend 신규 계약 소비는 검증하지 않았다.
+
+- `POST /api/admin/mention-drafts/{id}/approve`, JSON `{expectedVersion}`만 받는다. id는 양의 정수, expectedVersion은 필수·null 불가·0 이상 long 정수다. 숫자 문자열·소수·범위 초과·알 수 없는 필드는 400이다.
+- `Idempotency-Key` 필수·비공백·최대 128자. 세션 ADMIN·CSRF를 유지하고 Principal username으로 활성 관리자 행을 잠근다. 활성 관리자 확인은 영수증 재생보다 먼저 수행한다.
+- 성공 200: `{draftId,draftVersion,draftStatus,mentionId,restaurantId,mentionVersion,verificationStatus,publicationStatus}`. draftStatus는 APPLIED, 신규 관계는 APPROVED/PUBLISHED다. 두 version을 구분하며 응답은 승인 당시 결과 스냅샷이다.
+- CREATE만 승인한다. 없는 초안·CORRECTION은 404. 저장된 식당·셰프·영상·유형이 필수이며 시점·메모는 선택이다. 본문으로 내용을 수정하거나 관리자·공개 상태를 지정할 수 없다.
+- 관리자 → 영수증 확인 → 초안 WRITE 잠금 → 상태·version·필수값·참조 검증 → 관계 중복 검사 → 기존 직접 승인용 Mention 생성 → APPLIED 전환·flush → APPROVE_DRAFT 감사 → 200 영수증을 하나의 트랜잭션으로 처리한다.
+- 같은 관리자·키·경로·정규화 요청의 유효 영수증은 24시간 동안 동일 200을 재생한다. 해시는 POST·id 포함 전체 경로·expectedVersion으로 구성한다. 재생은 새 전이·감사·영수증이나 관계 복구를 만들지 않는다. 키 공간은 기존 직접 승인·초안 생성과 공유한다.
+- 영수증 일치 검사 후 APPLIED이면 version보다 먼저 409 DRAFT_ALREADY_APPLIED다. 다른 키·다른 관리자·영수증 만료 후의 재승인도 동일하다. 키가 다른 요청에 사용됐으면 APPLIED 검사 전에 IDEMPOTENCY_CONFLICT다.
+- 다른 초안·직접 승인·후보 승인과 같은 조합이면 기존 상태·유형과 무관하게 DUPLICATE_RELATION이다. 기존 관계의 모든 값을 보존하고 자동 승인·정정·복구하지 않는다.
+- 식당은 #14 저장/PATCH에서 이미 확정된다. 승인에는 장소 토큰·외부 API·식당 신규 생성이 없으며 토큰 만료는 저장된 초안 승인에 영향을 주지 않는다. 승인 실패는 기존 식당·초안 생성 이력을 삭제하지 않는다.
+- UNIQUE 위반 후 조회는 서비스 롤백이 끝난 NEVER facade에서만 한다. mentions_relationship_key만 중복으로 변환한다. 자동 재시도는 없고 잠금·데드락·낙관 충돌은 롤백 후 재조회 안내를 반환한다.
+- V3 컬럼·FK·상태 CHECK·관계 UNIQUE·범용 영수증으로 구현하며 신규 migration은 없다. Frontend 타입·래퍼·새 UI는 #17에 남긴다.
+
+| HTTP | code | 추가 필드 |
+| --- | --- | --- |
+| 400 | INVALID_INPUT | 없음 |
+| 400 | DRAFT_INCOMPLETE | missingFields: 누락 필수 필드명 배열 |
+| 404 | RESOURCE_NOT_FOUND | 없음 |
+| 409 | STALE_VERSION | currentVersion |
+| 409 | DRAFT_ALREADY_APPLIED | currentVersion, appliedMentionId |
+| 409 | DUPLICATE_RELATION | existingMentionId |
+| 409 | IDEMPOTENCY_CONFLICT / CONCURRENT_CONFLICT | 없음 |
+| 403 | ADMIN_INACTIVE | 없음. 승인 서비스의 활성 관리자 검증 실패 |
+| 500 | INTERNAL_ERROR | 내부 예외·DB 원문 없음 |
+
+위 오류는 code/message JSON이다. Security의 익명 401·권한/CSRF 403은 기존 빈 응답을 유지한다. 기존 #14·직접·후보 승인 오류 계약은 일괄 변경하지 않는다. 공개 조건은 APPROVED AND PUBLISHED, 내부 메모·관리자·초안·영수증 비공개를 유지한다.
 
 ### 목표와의 차이 및 결정 상태
 
 | ID | 현재 → 기존 목표 설계 | 후속 검토 |
 | --- | --- | --- |
-| D1 | 초안 없이 직접 승인 → 기존 목표의 초안 경유 직접 승인 | #14 승인: 기존 직접 승인 유지. 초안 승인은 #15 별도 연결 |
+| D1 | 초안 없이 직접 승인 → 기존 목표의 초안 경유 직접 승인 | #14·#15 승인: 기존 직접 승인 유지. 저장 초안은 별도 승인 endpoint |
 | D2 | 중첩 candidates/place·만료 시각 없음 → 평탄한 items·selectionExpiresAt | #17 전에 응답 형식·만료 안내 계약 결정. 이름만 바꾸는 소급 변경 금지 |
 | D3 | `/videos` 후보 수집 + `/videos/metadata` 전용 → `/videos` 메타데이터 전용 | #17 전에 분리 경로 유지 또는 호환 전환 계획 결정. 기존 소비자의 후보 추출을 깨뜨리지 않음 |
-| D4 | 초안은 restaurantId 또는 토큰 지원, 직접 승인은 토큰 유지 | #14 승인·구현. #15·#18 소비 흐름은 후속 |
-| D5 | 직접 승인·초안 생성 멱등 처리 → 셰프·정정 생성까지 확장 | #14 승인·구현. 다른 생성 경로는 후속 |
+| D4 | 초안은 restaurantId 또는 토큰 지원, 직접 승인은 토큰 유지 | #14 구현. #15 승인: 저장된 restaurantId만 사용. #18 소비 흐름은 후속 |
+| D5 | 직접 승인·초안 생성 멱등 처리 → 다른 생성·승인 경로로 확장 | #14·#15 초안 승인 멱등 처리 구현. 셰프·정정 생성은 후속 |
 | D6 | 출처 확인 상태·재확인 API 없음 → 관리자 재확인·필터 | #16·#18 전에 저장 모델·실패 보존·판정 기준 설계. 영상 접근 불가만으로 관계를 숨기지 않음 |
 
-D1·D4·D5의 #14 범위는 사용자 승인에 따라 위 현재 계약으로 구현했다. 나머지 항목과 후속 범위는 미정이며 문서 전체를 구현 승인으로 간주하지 않는다.
+D1·D4·D5의 #14·#15 범위는 위 현재 계약을 따른다. 나머지 항목과 후속 범위는 별도 결정 대상이며 문서 전체를 구현 승인으로 간주하지 않는다.
 
 ## 목표 설계 — 미구현 부분과 전환안 포함
 
@@ -115,7 +148,7 @@ D1·D4·D5의 #14 범위는 사용자 승인에 따라 위 현재 계약으로 �
 - 경로는 `/api/admin` 아래다. 기존 DB 관리자 세션·ADMIN 권한·CSRF 보호를 사용한다. 작성·승인 권한을 분리하지 않으며 본인 자료를 승인할 수 있다.
 - 요청·응답 JSON은 camelCase, 시간은 UTC ISO 8601, ID는 기존 도메인 타입을 유지한다. 시점은 `timestampSeconds: null | 0 이상의 정수`다.
 - version이 있는 수정·상태 전이 요청은 `expectedVersion`을 필수로 받는다. 정정안에는 추가로 `baseVersion`을 두고 서버가 대상 현재 version을 확인한다. 충돌 시 덮어쓰지 않는다.
-- 성공 응답은 명시적 JSON을 반환한다. 생성은 201, 조회·수정·승인·공개 제어는 200. 완료된 동일 초안 승인 재요청은 같은 적용 결과를 200으로 반환한다.
+- 성공 응답은 명시적 JSON을 반환한다. 생성은 201, 조회·수정·승인·공개 제어는 200. CREATE 초안 승인 재요청은 위 #15 승인 계약을 따른다. 유효한 동일 멱등 요청만 200 재생하며 다른 키·관리자·만료 후 재승인은 409 DRAFT_ALREADY_APPLIED다. 정정 승인 재요청 정책은 후속 범위다.
 - 목록은 `page`(0부터)·`size`(기본 20, 최대 100), `items/totalElements/page/size/hasNext`를 사용한다. 이 규칙은 관리자 목록이며 사용자 앱의 커서 조회와 별개다.
 - 외부 키·헤더·원문 외부 오류·DB 예외·비밀번호는 응답과 로그에 포함하지 않는다. 검색 결과가 0개면 200의 빈 배열이며 외부 오류는 비정상 응답이다.
 
@@ -171,8 +204,8 @@ Video 응답은 `id/title/channelTitle/publishedAt/description/sourceCheckStatus
 | POST `/mention-drafts` | CREATE 초안 명시적 임시 저장. 장소 식별만 필수. 초안·연결 식당·version 반환 |
 | GET `/mention-drafts/{id}` | 원본 후보 연결, 입력 내용, status/version 포함 관리자 조회 |
 | PATCH `/mention-drafts/{id}` | DRAFT 내용 저장. expectedVersion 필수. 적용 완료된 초안 수정 불가 |
-| POST `/mention-drafts/{id}/approve` | expectedVersion 필수. 필수 항목 확인 후 Mention 생성 또는 정정 적용. 초안 APPLIED와 이력을 함께 저장 |
-| POST `/mentions` | 저장 전 양식에서 바로 ‘승인·공개’. CREATE 초안 생성·검증·승인을 하나의 트랜잭션으로 처리. 결과는 mentionId/draftId/version |
+| POST `/mention-drafts/{id}/approve` | #15 현재 계약: CREATE만, expectedVersion·멱등키 필수, 200 승인 결과. CORRECTION 승인은 후속 범위 |
+| POST `/mentions` | 현재 직접 승인 유지: 초안 없이 관계·감사·영수증 저장, 201 DirectRegistrationResult. #15에서 초안 경유로 바꾸지 않음 |
 
 CREATE 양식의 공통 필드:
 
@@ -189,7 +222,7 @@ CREATE 양식의 공통 필드:
 
 신규 장소라면 `restaurantId` 대신 `placeSelectionToken`을 보낸다. ID 12는 예시다. 시점·메모는 선택이고 빈 메모는 NULL로 정규화한다. 식당이 선택되지 않은 초안 저장은 400이다. 승인에는 실제 셰프·영상 FK·유형이 모두 있어야 한다. 클라이언트가 verificationStatus/publicationStatus/reviewedBy를 지정할 수 없다.
 
-CREATE 초안 PATCH의 식당 변경은 기존 restaurantId 또는 새 장소 토큰으로 처리하며 저장되지 않은 변경 이탈 원칙을 적용한다. 임시 저장을 누른 경우에만 새 선택을 저장한다. 같은 관계가 이미 있으면 409와 existingMentionId를 반환한다. 기존 관계를 수정하거나 승인 상태를 바꾸지 않는다.
+CREATE 초안 PATCH의 식당 변경은 기존 restaurantId 또는 새 장소 토큰으로 처리하며 저장되지 않은 변경 이탈 원칙을 적용한다. 임시 저장을 누른 경우에만 새 선택을 저장한다. #14 초안 저장·PATCH에서는 같은 관계 조합의 초안을 허용한다. #15 최종 승인에서 관계 중복이면 409와 existingMentionId를 반환하며 기존 관계를 수정하거나 승인 상태를 바꾸지 않는다.
 
 생성 POST(셰프·직접 승인·초안·정정안)는 `Idempotency-Key`를 필수로 받는다. 별도 작은 `admin_request_receipts` 테이블에 관리자 ID·키·경로/요청 해시·성공 결과·생성/만료 시각을 저장하고 `(admin_id, key)`를 UNIQUE로 둔다. 성공 결과 보관은 24시간이다. 동일 키·동일 요청은 동일 결과, 다른 요청 재사용은 409다. 업무 저장과 영수증 저장을 한 트랜잭션에 묶고 실패는 성공 영수증을 남기지 않는다. 만료 후에도 관계 UNIQUE·초안 상태·version으로 중복 승인/수정을 방지한다. 외부 조회 결과·인증 헤더를 영수증에 저장하지 않는다.
 

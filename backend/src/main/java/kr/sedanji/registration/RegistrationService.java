@@ -5,6 +5,7 @@ import kr.sedanji.admin.AdminUserRepository;
 import kr.sedanji.chef.ChefService;
 import kr.sedanji.mention.MentionService;
 import kr.sedanji.mention.MentionType;
+import kr.sedanji.mentiondraft.*;
 import kr.sedanji.restaurant.RestaurantService;
 import kr.sedanji.restaurantcandidate.RestaurantCandidateService;
 import org.springframework.http.HttpStatus;
@@ -26,17 +27,21 @@ public class RegistrationService {
     private final AdminAuditEventRepository audits;
     private final AdminRequestReceiptRepository receipts;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
+    private final MentionDraftRepository drafts;
+    private final kr.sedanji.restaurant.RestaurantRepository restaurantRepository;
 
     public RegistrationService(ChefService chefs, MentionService mentions, RestaurantService restaurants,
                                RestaurantCandidateService candidates, AdminUserRepository admins,
                                kr.sedanji.PlaceSelectionService selections, kr.sedanji.chef.ChefRepository chefRepository,
                                kr.sedanji.video.VideoRepository videos, kr.sedanji.mention.MentionRepository mentionRepository,
                                AdminAuditEventRepository audits, AdminRequestReceiptRepository receipts,
-                               com.fasterxml.jackson.databind.ObjectMapper mapper) {
+                               com.fasterxml.jackson.databind.ObjectMapper mapper, MentionDraftRepository drafts,
+                               kr.sedanji.restaurant.RestaurantRepository restaurantRepository) {
         this.chefs = chefs; this.mentions = mentions; this.restaurants = restaurants;
         this.candidates = candidates; this.admins = admins;
         this.selections = selections; this.chefRepository = chefRepository; this.videos = videos;
         this.mentionRepository = mentionRepository; this.audits = audits; this.receipts = receipts; this.mapper = mapper;
+        this.drafts = drafts; this.restaurantRepository = restaurantRepository;
     }
     @Transactional
     public void approveFromCandidate(long candidateId, long chefId, String placeId, MentionType type,
@@ -88,6 +93,57 @@ public class RegistrationService {
         audits.saveAndFlush(new AdminAuditEventEntity(admin.getId(), result,
             json(java.util.Map.of("result", result, "mention", mention.toDto()))));
         receipts.saveAndFlush(new AdminRequestReceiptEntity(admin.getId(), key, hash, body, now));
+        return result;
+    }
+    @Transactional
+    public MentionDraftApprovalResult approveDraft(long id, MentionDraftApprovalRequest request, String key, String hash,
+        String username, MentionDraftApprovalFacade.Attempt attempt) {
+        var admin = admins.findForUpdate(username).filter(AdminUserEntity::isEnabled)
+            .orElseThrow(() -> new MentionDraftApprovalException(403, "ADMIN_INACTIVE", "활성 관리자만 승인할 수 있습니다."));
+        var now = java.time.OffsetDateTime.now();
+        var receipt = receipts.findByAdminIdAndIdempotencyKey(admin.getId(), key);
+        String path = MentionDraftApprovalFacade.path(id);
+        if (receipt.isPresent() && receipt.get().active(now)) {
+            if (!receipt.get().matches(path, hash, 200))
+                throw new MentionDraftApprovalException(409, "IDEMPOTENCY_CONFLICT", "다른 요청에 사용된 멱등키입니다.");
+            try { return mapper.readValue(receipt.get().body(), MentionDraftApprovalResult.class); }
+            catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("승인 영수증 형식 오류"); }
+        }
+        if (receipt.isPresent()) { receipts.delete(receipt.get()); receipts.flush(); }
+        var draft = drafts.findForUpdate(id).filter(MentionDraftEntity::isCreate).orElseThrow(MentionDraftApprovalException::missing);
+        if (!draft.isEditable())
+            throw new MentionDraftApprovalException(409, "DRAFT_ALREADY_APPLIED", "이미 적용된 초안입니다.",
+                java.util.Map.of("currentVersion", draft.getVersion(), "appliedMentionId", draft.getAppliedMentionId()));
+        if (draft.getVersion() != request.expectedVersion())
+            throw new MentionDraftApprovalException(409, "STALE_VERSION", "초안을 다시 조회하세요.",
+                java.util.Map.of("currentVersion", draft.getVersion()));
+        var missing = new java.util.ArrayList<String>();
+        if (draft.getRestaurantId() < 1) missing.add("restaurantId");
+        if (draft.getChefId() == null) missing.add("chefId");
+        if (draft.getVideoId() == null) missing.add("videoId");
+        if (draft.getMentionType() == null) missing.add("mentionType");
+        if (!missing.isEmpty())
+            throw new MentionDraftApprovalException(400, "DRAFT_INCOMPLETE", "초안의 필수 항목을 확인하세요.", java.util.Map.of("missingFields", missing));
+        if ((draft.getTimestampSeconds() != null && draft.getTimestampSeconds() < 0)
+            || (draft.getVerificationNote() != null && draft.getVerificationNote().length() > 2000))
+            throw MentionDraftApprovalException.invalid();
+        var restaurant = restaurantRepository.findById(draft.getRestaurantId()).orElseThrow(MentionDraftApprovalException::missing);
+        var chef = chefRepository.findById(draft.getChefId()).orElseThrow(MentionDraftApprovalException::missing);
+        var video = videos.findById(draft.getVideoId()).orElseThrow(MentionDraftApprovalException::missing);
+        attempt.relationship(chef.getId(), restaurant.getId(), video.getId());
+        mentionRepository.findStoredRelationshipId(chef.getId(), restaurant.getId(), video.getId())
+            .ifPresent(existing -> { throw MentionDraftApprovalException.duplicate(existing); });
+        var before = draft.toDto(MentionDraftResult.Restaurant.from(restaurant));
+        var mention = mentions.approveDirect(chef, restaurant, video, draft.getMentionType(), draft.getTimestampSeconds(),
+            draft.getVerificationNote(), admin);
+        draft.apply(mention.getId(), admin.getId());
+        drafts.flush();
+        var result = new MentionDraftApprovalResult(id, draft.getVersion(), "APPLIED", mention.getId(), restaurant.getId(),
+            mention.getVersion(), "APPROVED", "PUBLISHED");
+        var after = java.util.Map.of("draft", draft.toDto(MentionDraftResult.Restaurant.from(restaurant)),
+            "mention", mention.toDto(), "result", result);
+        audits.saveAndFlush(AdminAuditEventEntity.approveDraft(admin.getId(), id, mention.getId(), restaurant.getId(), json(before), json(after)));
+        receipts.saveAndFlush(new AdminRequestReceiptEntity(admin.getId(), key, path, hash, 200, json(result), now));
         return result;
     }
     private DirectRegistrationException missing(String resource) {
