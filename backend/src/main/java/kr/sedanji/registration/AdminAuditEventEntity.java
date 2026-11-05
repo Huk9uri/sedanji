@@ -10,13 +10,22 @@ public class AdminAuditEventEntity {
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id;
     @Column(name="actor_id", nullable=false) private long actorId;
     @Column(name="mention_id") private Long mentionId;
+    @Column(name="draft_id") private Long draftId;
     @Column(name="restaurant_id") private Long restaurantId;
     @Column(nullable=false, length=50) private String action;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name="after_value", columnDefinition="jsonb") private String afterValue;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name="before_value", columnDefinition="jsonb") private String beforeValue;
     @Column(name="occurred_at", nullable=false) private OffsetDateTime occurredAt;
     protected AdminAuditEventEntity() {}
     public AdminAuditEventEntity(long actor, DirectRegistrationResult result, String snapshot) {
         actorId = actor; mentionId = result.mentionId(); restaurantId = result.restaurantId();
         action = "APPROVE_DIRECT"; afterValue = snapshot; occurredAt = OffsetDateTime.now();
+    }
+    public static AdminAuditEventEntity draft(long actor, long draft, long restaurant, String before, String after) {
+        var event = new AdminAuditEventEntity();
+        event.actorId = actor; event.draftId = draft; event.restaurantId = restaurant;
+        event.action = before == null ? "DRAFT_CREATED" : "DRAFT_UPDATED";
+        event.beforeValue = before; event.afterValue = after; event.occurredAt = OffsetDateTime.now();
+        return event;
     }
 }

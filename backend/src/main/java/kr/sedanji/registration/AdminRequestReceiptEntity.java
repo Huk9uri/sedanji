@@ -18,10 +18,16 @@ public class AdminRequestReceiptEntity {
     @Column(name="expires_at", nullable=false) private OffsetDateTime expiresAt;
     protected AdminRequestReceiptEntity() {}
     public AdminRequestReceiptEntity(long admin, String key, String hash, String body, OffsetDateTime now) {
-        adminId = admin; idempotencyKey = key; requestPath = "/api/admin/mentions";
-        requestHash = hash; responseStatus = 201; responseBody = body; createdAt = now; expiresAt = now.plusHours(24);
+        this(admin, key, "/api/admin/mentions", hash, 201, body, now);
+    }
+    public AdminRequestReceiptEntity(long admin, String key, String path, String hash, int status, String body, OffsetDateTime now) {
+        adminId = admin; idempotencyKey = key; requestPath = path;
+        requestHash = hash; responseStatus = status; responseBody = body; createdAt = now; expiresAt = now.plusHours(24);
     }
     public boolean active(OffsetDateTime now) { return expiresAt.isAfter(now); }
     public boolean matches(String hash) { return requestHash.equals(hash) && requestPath.equals("/api/admin/mentions"); }
+    public boolean matches(String path, String hash, int status) {
+        return requestPath.equals(path) && requestHash.equals(hash) && responseStatus == status;
+    }
     public String body() { return responseBody; }
 }
