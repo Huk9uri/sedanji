@@ -9,7 +9,7 @@
 - React Router, TanStack Query, Tailwind CSS, shadcn/ui는 기존 기본 선택·향후 도입 대상이며 현재 사용 중이 아니다. 승인 없이 추가하거나 하네스 정비와 함께 전환하지 않는다.
 - 기능 중심 디렉터리를 필요한 범위에서 확장하되 app/pages/entities/shared 전체가 이미 있다고 가정하거나 일괄 재배치하지 않는다.
 - 사용자 모바일·관리자 웹은 목표 제품 방향이다. 현재 공개 웹 지도를 React Native·Expo 앱으로 표현하지 않으며 SDK·내비게이션·Expo Go 호환성은 실제 모바일 파일 확인 전 미확인으로 둔다.
-- 직접 등록·초안·정정·공개 제어 신규 화면은 완료되지 않았다. `../docs/ADMIN_API.md`의 예정 API가 동작한다고 가정해 호출하거나 가짜 성공을 표시하지 않는다.
+- 직접 등록·초안·정정·공개 제어 신규 화면은 완료되지 않았다. 직접 장소 검색·메타데이터·직접 승인 Backend API는 있으나 화면은 기존 후보 경로를 사용한다. `../docs/ADMIN_API.md`의 현재 계약과 목표 설계를 구분하며 미구현 API를 호출하거나 가짜 성공을 표시하지 않는다.
 
 근거: `package.json`, `tsconfig.json`, `vite.config.ts`, `src/main.tsx`, `src/App.tsx`, `../docs/REQUIREMENTS.md`, `../docs/DIRECT_REGISTRATION_MIGRATION.md`.
 
@@ -26,6 +26,7 @@
 - 애플리케이션 API 호출은 `src/api.ts`의 `api(path, options)`를 사용한다. 현재 `/api` 접두어를 래퍼가 붙이므로 호출 경로에 중복 추가하지 않는다.
 - 현재 래퍼는 GET 이외 요청 전 `/api/csrf`를 조회해 응답의 headerName에 token을 넣는다. 일반 본문은 JSON, `form: true`는 URLSearchParams로 전송한다.
 - 204와 빈 201 등 빈 성공 응답은 null로 처리한다. 모든 성공 응답이 JSON이라고 가정하지 않는다. 서버 message와 본문 없는 401·403의 기본 오류 안내를 유지한다.
+- 현재 래퍼는 사용자 지정 헤더를 받지 않아 직접 승인에 필요한 Idempotency-Key를 전달할 수 없고, 오류 code·existingMentionId도 Error에 보존하지 않는다. 신규 화면 연결 작업에서 계약·재시도·오류 UI와 함께 구현할 범위이며 이번 문서 정리로 지원됐다고 가정하지 않는다.
 - API 변경 시 `../backend/src/main/java/kr/sedanji/ApiController.java`, `../backend/src/main/java/kr/sedanji/Models.java`, `../backend/src/main/java/kr/sedanji/ApiErrors.java`, `../backend/src/main/java/kr/sedanji/SecurityConfig.java`, 관련 서비스·테스트를 함께 확인한다. 경로·메서드·필드·타입·null·상태 코드·오류·인증·CSRF·입력 조건·목록 갱신의 양쪽 영향을 보고한다.
 - `vite.config.ts`는 루트 환경변수를 읽고 개발 `/api`를 로컬 백엔드로 프록시한다. 이 설정을 배포·모바일 API 주소나 교차 출처 인증 정책으로 간주하지 않는다.
 - 브라우저용 `VITE_` 변수는 공개될 수 있다. 서버 REST 키·YouTube 키·DB·관리자 비밀번호에 이 접두어를 붙이거나 번들에 포함하지 않는다.

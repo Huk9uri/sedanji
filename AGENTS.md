@@ -27,13 +27,13 @@
 | --- | --- | --- |
 | Backend | Java 17, Spring Boot 3.5.16, Web·Data JPA·Validation·Security, PostgreSQL, Flyway, Gradle Wrapper 8.14.3 | 직접 등록·초안·정정·공개 제어 신규 API 전체가 완료된 것은 아님 |
 | Web | React 19, TypeScript/TSX, Vite, 일반 CSS, React hooks, Kakao Maps JavaScript SDK | React Router, TanStack Query, Tailwind CSS, shadcn/ui는 기존 기본 선택이지만 미도입 |
-| 저장 모델 | V1~V3 migration과 후보 기반 승인·공개 조회 | 초안·감사·멱등 테이블 존재만으로 대응 기능 구현을 주장하지 않음 |
+| 저장 모델 | V1~V3 migration, 후보·직접 승인·공개 조회·직접 승인의 감사·멱등 Entity/Repository | 초안 테이블만으로 초안 API 구현을 주장하지 않음. 정정·공개 제어는 후속 범위 |
 | Mobile | React Native·Expo는 사용자 확인상 미구현이며 이번 작업에서 제외 | 사용자용 모바일 앱은 제품 방향이며 SDK·내비게이션·Expo Go 호환성은 미확인 |
-| 검증 | JUnit 5·Mockito·Testcontainers, Vitest·RTL, TypeScript strict·noEmit 설정, Python unittest | Playwright는 핵심 흐름 구현 후 도입 계획. 전용 린트·CI 설정은 현재 미확인. 타입 검사 실행 결과는 별도 확인 |
+| 검증 | JUnit 5·Mockito·Testcontainers, Vitest·RTL, TypeScript strict·noEmit 설정, Python unittest, `.github/workflows/ci.yml`의 Backend·Frontend·Python 검사 | Playwright는 핵심 흐름 구현 후 도입 계획. Frontend lint 스크립트 없음. CI·타입 검사 실제 실행 성공 여부는 별도 확인 |
 
 - `frontend/package.json`은 버전 범위, `frontend/package-lock.json`은 잠금 버전의 근거다. 실행 환경 버전과 구분한다.
 - 현재 웹은 공개 지도와 관리자가 함께 있는 프로토타입이다. 사용자 모바일·관리자 웹의 목표 구조로 전환 완료했다고 표현하지 않는다.
-- `docs/ADMIN_API.md`는 구현 예정 계약이다. 현재 계약은 Controller·DTO·소비 코드·테스트로 확인한다. `docs/ADMIN_IMPLEMENTATION_PLAN.md`의 과거 점검표를 최신 구현으로 간주하지 않는다.
+- `docs/ADMIN_API.md`는 현재 코드 계약과 목표 설계를 구분한다. 현재 계약은 Controller·DTO·소비 코드·테스트로 확인하고 목표 절을 현재 동작으로 간주하지 않는다. 직접 장소 검색·메타데이터 등록·직접 승인과 감사·멱등 저장은 구현됐으며, 초안·정정·공개 제어·새 UI는 남아 있다. `docs/ADMIN_IMPLEMENTATION_PLAN.md`의 과거 점검표를 최신 구현으로 간주하지 않는다.
 - 기술 스택 변경은 이유와 영향을 설명하고 승인받는다. 하네스 정비를 이유로 기술 전환이나 앱 재구성을 수행하지 않는다.
 
 근거: `backend/build.gradle`, `backend/gradle/wrapper/gradle-wrapper.properties`, `frontend/package.json`, `frontend/src/App.tsx`, `docs/REQUIREMENTS.md`, `docs/DIRECT_REGISTRATION_MIGRATION.md`.

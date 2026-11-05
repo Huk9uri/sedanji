@@ -1,6 +1,56 @@
 # 관리자 식당 관리 API 계약
 
-갱신일: 2026-11-02. 상태: 구현 예정 계약. 현재 실행 중인 API와 구분한다. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+갱신일: 2026-11-05. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+
+## 현재 코드 계약 — 2026-11-05 정적 확인
+
+기준: `feat/RegistrationService` / `12ae955e92c33e98f24207b6e62ca35351e74b18`.  다음은 로컬 소스 기준이며 배포 서버 응답·DB 적용 상태·테스트 통과를 이번에 확인한 것은 아니다. 이 절 뒤의 **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
+
+경로는 아래 표에서 `/api/admin` 기준이다. DB 관리자 세션·ADMIN·CSRF 보호는 유지한다.
+
+| 경로 | 현재 요청·응답·부수효과 |
+| --- | --- |
+| GET `/places?query=...` | 200. query는 공백만 입력 불가·최대 100자. `{candidates:[{placeSelectionToken,place:{id,name,roadAddress,address,longitude,latitude,placeUrl}}],totalCount,complete}`. 검색만으로 업무 DB 자료를 만들지 않음 |
+| POST `/videos/metadata` | `{url}`(필수·최대 500자). 후보 추출 없이 기존 영상 재사용 또는 공식 메타데이터 등록. 신규·재사용 모두 201, `Models.Video` 직접 반환 |
+| POST `/mentions` | 아래 직접 승인 요청과 `Idempotency-Key`(필수·비공백·최대 128자). 201 `{mentionId,restaurantId,version,verificationStatus,publicationStatus}`. 초안은 생성하지 않으며 `draftId` 없음 |
+| GET / POST `/chefs` | GET은 검색·페이지 없는 `{id,name}` 배열. POST `{name}`은 필수·최대 100자, 200 Chef. 동명 신규 생성 가능. 현재 이 경로에는 멱등 영수증 처리 없음 |
+| GET / POST `/videos` | GET은 Video 배열. POST `{url}`은 기존 영상 수집·설명란 후보 추출 흐름이며 200 Video. 메타데이터 전용 API와 구분 |
+| GET `/mentions`, GET `/candidates` 및 `/candidates/...` | 기존 관계·후보 조회·검색·승인·제외 유지. 후보 승인·수동 추가는 빈 201, 제외는 204. 후보 승인 입력은 `evidence` 필수·`note` 선택 |
+
+직접 승인 요청은 `placeSelectionToken`, 양의 정수 `chefId`, 11자리 `videoId`, `mentionType`이 필수다. `timestampSeconds`는 null 또는 0 이상 int 정수, `verificationNote`는 선택·최대 2,000자이며 공백은 null로 저장한다. `restaurantId`를 장소 선택 토큰 대신 사용하는 경로는 아직 없다. 직접 승인은 자유 입력 evidence를 요구하지 않지만 기존 후보 승인은 근거 입력을 요구한다.
+
+장소 토큰은 관리자·세션에 묶여 15분 유효하며 최대 45개 후보를 담은 검색 묶음을 최근 5개 보관한다. 응답에 `selectionExpiresAt`은 없다. 주소 미제공은 null, 장소 URL은 검증된 Kakao ID로 생성한다. 완전하지 않은 검색은 `complete=false`로 반환한다.
+
+직접 승인에서는 식당 생성·재사용, 관계 승인, 감사 이벤트, 24시간 멱등 영수증을 하나의 트랜잭션으로 저장한다. 같은 관리자·키·요청의 유효 영수증 재생은 세션 검색 자료가 없어져도 같은 결과를 201로 반환한다. 다른 요청은 409, 만료 후에는 관계 중복 제약으로 재생성을 막는다. 기존 식당 이름·주소는 재사용 때 덮어쓰지 않는다. 후보·초안 생성 없이 관계가 APPROVED/PUBLISHED가 되며 공개 조회는 두 상태를 모두 검사한다.
+
+현재 Video는 `id/title/channelTitle/publishedAt/description/extractionWarning`이다. `sourceCheckStatus/sourceCheckedAt`, 재사용 여부 래퍼, 출처 재확인 API는 없다.
+
+### 현재 오류와 소비자
+
+- `DirectRegistrationErrors`는 신규 Controller 범위에서 400 `INVALID_INPUT`, 404 `RESOURCE_NOT_FOUND`, 409 `DUPLICATE_RELATION`(existingMentionId 포함)·`IDEMPOTENCY_CONFLICT`, 410 `PLACE_SELECTION_EXPIRED`를 `code/message`로 변환한다. 모든 오류가 이 형식은 아니다.
+- 외부 실패는 기존 `ApiErrors`의 502 `message` 응답을 사용한다. 목표의 422 출처 오류·503/504 분류·`fieldErrors/retryable`은 구현 완료가 아니다. 보안 401·403은 빈 본문일 수 있다.
+- `frontend/src/App.tsx`·`CandidateReviewCard.tsx`는 기존 후보 경로를 사용하며 신규 직접 등록 API 소비 화면은 없다. `api.ts`는 CSRF·JSON/폼·빈 응답을 처리하지만 사용자 지정 헤더 전달과 구조화 오류 보존은 지원하지 않는다. 신규 화면 연결 시 멱등키·중복 ID·만료 오류 처리가 필요하다.
+- 기존 후보 화면의 검토 메모는 필수지만 Backend는 선택이다. 이를 서버 필수 규칙으로 바꾸지 않으며 UI 수정은 후속 구현 범위다.
+- `scripts/smoke-api.py`, `scripts/check-backend-state.py`도 기존 조회 경로를 소비한다. 영상 경로·응답 변경 때 함께 검토하며 이번에는 실행하지 않았다.
+
+근거: `backend/src/main/java/kr/sedanji/`의 `ApiController`, `Models`, `PlaceSelectionService`, `registration/DirectRegistrationController`, `DirectRegistrationRequest`, `DirectRegistrationResult`, `DirectRegistrationFacade`, `RegistrationService`, `DirectRegistrationErrors`, `video/VideoMetadataService` 및 Frontend 소비 코드.
+
+### 목표와의 차이 및 결정 대기
+
+| ID | 현재 → 기존 목표 설계 | 후속 검토 |
+| --- | --- | --- |
+| D1 | 초안 없이 직접 승인 → CREATE 초안 생성·적용 후 draftId 반환 | #14·#15 전에 직접 승인도 초안을 남길지 결정. 현재 방식 유지가 목표 확정이라는 뜻은 아님 |
+| D2 | 중첩 candidates/place·만료 시각 없음 → 평탄한 items·selectionExpiresAt | #17 전에 응답 형식·만료 안내 계약 결정. 이름만 바꾸는 소급 변경 금지 |
+| D3 | `/videos` 후보 수집 + `/videos/metadata` 전용 → `/videos` 메타데이터 전용 | #17 전에 분리 경로 유지 또는 호환 전환 계획 결정. 기존 소비자의 후보 추출을 깨뜨리지 않음 |
+| D4 | 장소 토큰만 지원 → 기존 restaurantId로 관계 추가 | #14·#15·#18에서 장소 입력·검증 범위 설계 |
+| D5 | 직접 승인만 멱등 처리 → 셰프·초안·정정 생성까지 공통 처리 | #14·#15·#19에서 키/경로 구분·재시도·영수증 호환 설계. 기존 성공 영수증의 결과 형식도 보존 검토 |
+| D6 | 출처 확인 상태·재확인 API 없음 → 관리자 재확인·필터 | #16·#18 전에 저장 모델·실패 보존·판정 기준 설계. 영상 접근 불가만으로 관계를 숨기지 않음 |
+
+이 항목들은 미정이며 이번 문서 수정으로 코드 변경이나 목표 설계 변경을 승인하지 않는다.
+
+## 목표 설계 — 미구현 부분과 전환안 포함
+
+아래는 2026-11-02 설계 본문을 보존한 것이다. 위 현재 계약과 다른 경로·응답·상태·저장 흐름은 결정 및 후속 구현 전까지 호출 가능한 계약으로 취급하지 않는다.
 
 ## 공통
 
