@@ -5,14 +5,16 @@
 ## 현재 구조와 책임
 
 - Java 17, Spring Boot 3.5.16, Gradle Wrapper 8.14.3을 사용한다. 의존성·태스크는 `build.gradle`, 버전은 Wrapper 설정을 확인한다.
-- `src/main/java/kr/sedanji/`의 chef, restaurant, video, mention, restaurantcandidate, importjob, registration, admin은 도메인 중심 패키지다. 필요한 범위에서 Service·Repository·Entity 책임을 분리한다.
+- `src/main/java/kr/sedanji/`의 chef, restaurant, video, mention, mentiondraft, restaurantcandidate, importjob, registration, admin은 도메인 중심 패키지다. 필요한 범위에서 Service·Repository·Entity 책임을 분리한다.
 - 기존 Controller·DTO·오류는 `src/main/java/kr/sedanji/ApiController.java`, `Models.java`, `ApiErrors.java`다. 신규 직접 등록은 `registration/DirectRegistrationController`·요청/결과 record·`DirectRegistrationErrors`로 분리됐다. 외부 연동은 `ExternalApis.java`다. 별도 common·infrastructure 패키지가 이미 있다고 가정하지 않는다.
-- V3의 감사·멱등 테이블은 직접 승인 Entity·Repository가 사용한다. 초안 테이블은 준비됐지만 초안·정정·공개 중단·복구 API는 없다. `../docs/ADMIN_API.md`의 현재 계약과 목표 절을 구분하고 목표를 현재 API 소급 변경의 근거로 사용하지 않는다.
+- V3의 초안 테이블은 `mentiondraft/MentionDraftEntity`·Repository·Service가 사용하며 `MentionDraftController`가 CREATE 초안 생성·단건 조회·식당별 페이지 목록·부분 수정을 제공한다. `MentionDraftInput`의 엄격 파싱과 `MentionDraftErrors`의 오류 계약은 신규 초안 API에 한정한다. CREATE 초안 승인은 `MentionDraftApprovalController`·전용 Request/Result/Errors와 NEVER `MentionDraftApprovalFacade`, `RegistrationService.approveDraft`로 제공한다. 정정·공개 중단·복구 API는 없다. `../docs/ADMIN_API.md`의 현재 계약과 목표 절을 구분하고 목표를 현재 API 소급 변경의 근거로 사용하지 않는다.
 
 ## 트랜잭션과 동시성
 
 - 후보 기반 승인은 `registration/RegistrationService.approveFromCandidate`가 트랜잭션을 소유한다. 후보 잠금, 셰프·관리자·장소 검증, 식당 생성·재사용, Mention 저장, 후보 RESOLVED 처리는 함께 커밋·롤백되어야 한다.
 - 직접 승인은 `DirectRegistrationFacade`의 NEVER 경계에서 `RegistrationService.approveDirect`의 트랜잭션을 호출한다. 활성 관리자 행 잠금·세션 장소 검증·식당 재사용·관계·감사·24시간 영수증을 함께 처리한다. UNIQUE 충돌 후 기존 관계 조회는 롤백 완료 뒤 수행한다. 현재 직접 승인은 초안을 생성하지 않는다.
+- CREATE 초안 생성은 장소 토큰 또는 기존 restaurantId 중 하나를 받아 식당 생성·재사용, 초안·감사·24시간 생성 영수증을 함께 저장한다. PATCH는 관리자 → 초안 순서로 잠그고 expectedVersion을 확인하며 누락 필드는 유지·선택 필드 null은 해제한다. 성공한 PATCH는 같은 값이어도 version을 증가시키며 수정 영수증은 만들지 않는다. 저장·수정만으로 Mention을 만들거나 공개하지 않는다. 활성 관리자 간 조회·수정 공유와 기존 장소 정보 보존을 유지한다.
+- CREATE 초안 승인은 활성 관리자 확인·영수증 확인 후 관리자 → 초안 잠금 순서를 유지하며 저장된 필수 참조·expectedVersion을 검증한다. 관계 생성·APPLIED 전환·승인 감사·200 영수증은 원자적이다. 동일 관리자·키·요청의 유효 영수증만 24시간 재생하고 다른 키·관리자·만료 후 재승인은 DRAFT_ALREADY_APPLIED다. 상태 무관 관계 UNIQUE 충돌은 서비스 롤백 후 facade에서 조회·변환하며 자동 재시도·기존 관계 복구·장소 토큰 재검증·외부 호출은 하지 않는다.
 - `restaurantcandidate/RestaurantCandidateService.getForUpdate`·`resolveCandidate`와 `mention/MentionService.approve`의 MANDATORY 경계를 보존한다. 잠금이 전체 승인 흐름에서 유지되도록 호출자의 트랜잭션을 확인한다.
 - `RestaurantCandidateRepository`의 PESSIMISTIC_WRITE, 관계 UNIQUE 제약, `RestaurantRepository`의 Kakao ID 기반 atomic upsert를 우회하지 않는다. upsert는 현재 `on conflict ... do nothing`이며 기존 식당 이름·주소를 덮어쓰지 않는다.
 - 같은 셰프·식당·영상은 유형이 달라도 중복 관계다. 동명이인 셰프를 이름만으로 합치지 않는다.
