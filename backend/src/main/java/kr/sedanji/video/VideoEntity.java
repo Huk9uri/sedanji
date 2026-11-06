@@ -21,6 +21,12 @@ public class VideoEntity {
     private String extractionWarning;
     @Column(name = "imported_at", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime importedAt;
+    @Column(name = "source_check_status", nullable = false, length = 20)
+    private String sourceCheckStatus = "UNCHECKED";
+    @Column(name = "source_checked_at")
+    private OffsetDateTime sourceCheckedAt;
+    @Column(name = "source_check_reason", length = 20)
+    private String sourceCheckReason;
 
     protected VideoEntity() {}
     public VideoEntity(Video video) {
