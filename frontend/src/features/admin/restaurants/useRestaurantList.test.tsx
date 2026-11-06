@@ -32,3 +32,11 @@ it('clears data on auth generation changes and reports 401 separately from 403',
   rerender({generation:3,enabled:true});await waitFor(()=>expect(fail).toHaveBeenCalledWith(expect.objectContaining({status:403})));
   rerender({generation:4,enabled:false});expect(result.current.data).toBeUndefined();expect(result.current.error).toBeUndefined();
 });
+it('does not expire the current session for an obsolete query rejection',async()=>{
+  let reject!:(e:unknown)=>void;const fail=vi.fn();
+  vi.mocked(restaurantApi.list).mockImplementationOnce(()=>new Promise((_,r)=>{reject=r;})).mockResolvedValueOnce(empty(0,7));
+  const {result,rerender}=renderHook(({generation,query})=>useRestaurantList({...initialConditions(),query},vi.fn(),true,generation,0,fail),{initialProps:{generation:1,query:'old'}});
+  rerender({generation:2,query:'new'});await waitFor(()=>expect(result.current.data?.totalElements).toBe(7));
+  await act(async()=>{reject(new ApiError(401,'obsolete'));});
+  expect(fail).not.toHaveBeenCalled();expect(result.current.error).toBeUndefined();expect(result.current.data?.totalElements).toBe(7);
+});
