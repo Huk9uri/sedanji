@@ -2,6 +2,31 @@
 
 작성일: 2026-11-02. 현황 갱신일: 2026-11-06. 상태: #16 병합된 구현과 #13~#15 과거 기록 및 후속 계획을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
 
+## #18 관리자 식당 목록·상세 — 승인된 작업 트리·정적 검토
+
+기준: `feat/RegistrationService` / `1529eb74cec5cc4b0d5781f3e7942d40ee71c878`. 시작 시 staged·unstaged·untracked 없음. 로컬에 있는 main 기준 `73d4757fc9b75ff432a39c6a9fe63b24f65070df`와 파일 비교(`git diff --name-status`)는 차이 없음·종료 0이다. fetch·브랜치 변경은 하지 않았다. 이슈 #18은 조회 시 open·댓글 0, 선행 #4·#5 번호 표기는 실제 #16·#17과 불일치하며 이슈를 수정하지 않았다.
+
+사용자는 Handoff v2의 D1~D7과 Frontend·테스트 코드·문서 변경을 승인했다. 최초에는 실행 검증을 승인하지 않았고, 이후 “실행 검증도 해봐”로 실행을 허용했다. 루트·Backend·Frontend AGENTS 및 Implementer·API Change·DB Migration·Verification의 실제 본문을 읽고, 서버 계약·저장 모델 보존과 실행 제한을 적용했다. DB 변경 필요성은 발견하지 않았다.
+
+### 구현 책임과 승인 범위
+
+- `App.tsx`: 공개 지도 보존, 관리자 세션·로그인/로그아웃·인증 세대와 외부 이동 가드. 다른 계정은 작업 영역을 새로 만들고 동일 계정 재로그인은 등록 입력을 유지한다.
+- `AdminWorkspace.tsx`: 두 업무 메뉴·목록/상세/등록/기존 후보 화면·복귀 조건/스크롤·선택 식당·진입 의도·완료 이벤트와 관련 GET 갱신 조정.
+- `restaurants/types.ts`·`restaurantApi.ts`: #16 전체 DTO와 nullable 출처 판정·페이지, query 직렬화·signal. 목록/상세 hook은 취소·세대 검증과 독립 오류·페이지 보정을 담당한다.
+- 목록·상세 컴포넌트: 실제 서버 건수·셰프 미리보기·공개/출처 상태, 장소·관계별 필드·0/null 링크와 초안 목록. 미구현 업무 실행 UI는 없고 제보 메뉴는 비활성이다.
+- #17 hook·Form: 선택 식당 고정 GET·restaurantId 초안 생성·초안 승인, 서버 초안 재개, 결과 ID 기반 완료 이벤트·성공 유지·명시적 상세 이동. 기존 키·요청 스냅샷·dirty·version·APPLIED 보호를 유지한다.
+- `LegacyCandidateReview.tsx`: 기존 후보 보조 화면을 옮겨 보존했다. `CandidateReviewCard`에는 인증 실패 전달만 추가했으며 승인 필수값·본문·시점·메모 규칙은 바꾸지 않았다.
+
+### 작성한 테스트와 검증 한계
+
+Vitest·RTL 코드에 R10/R20, 관계 M101/M102(0초/null), 초안 D201을 사용한다. 기본 목록·두 메뉴·입력/실행 조건 분리·필터 페이지 초기화·복귀 조건, 관계 카드별 필드·공식 링크, 관계/초안 독립 페이지·오류, 늦은 검색/상세 응답·인증 세대 폐기, 범위 밖 페이지의 단일 보정, ID 기반 관계 추가·POST 없음·명시적 초안 저장·재개, 성공 후 GET 실패와 GET 전용 재시도·필터 제외 유지, 단일 이탈 dialog를 assertion으로 작성했다. 기존 등록 테스트에는 성공 결과 ID·완료 이벤트 실패 격리와 이전/새 식당 ID 전달을 보강했다. 기존 공개·후보·멱등 재확인 assertion은 보존하고 후보 진입 동선만 새 메뉴 구조에 맞췄다.
+
+최초 정적 검토 시 타입 검사·테스트·빌드는 NOT RUN(사용자 실행 제한)이었다. 이후 실행 승인에 따라 `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Frontend`를 실행했고 직후 `$LASTEXITCODE=0`을 확인했다. Frontend 타입 검사·10개 파일의 69개 테스트·빌드는 각각 PASS/0이며 전체 종료 코드도 0이다. 기존 샌드박스의 PowerShell 실행 정책 레지스트리 접근 제한에 맞춰 권한 확장으로 동일 진입점을 실행했으며 실행 정책·검증 설정은 바꾸지 않았다. 설치·다운로드·서버 시작은 수행하지 않았다. Backend·Python은 관련 변경이 없어 NOT RUN(미선택), 실제 브라우저·외부 API·운영 DB·배포 검증은 수행하지 않았다. #17의 Backend 184개·Frontend 51개 PASS는 과거 기록과 구분한다.
+
+Backend API·DB·Flyway·의존성·설치·실제 외부 API·서버·배포·Git 이력 변경은 수행하지 않았다. Handoff의 인증 만료 문장은 주변의 입력 보존·동일 계정 재로그인 요구에 맞춰 “양식을 즉시 unmount하지 않음”으로 적용했다.
+
+이번 정적 검사: `git diff --check` 종료 0, 변경 문서/지침의 로컬 Markdown 참조 20개 누락 0, 변경 TS/TSX의 상대 import 경로 누락 0, 신규 파일 12개의 공백·개행 문제 0. 변경 파일은 기존 추적 파일 10개·신규 파일 12개이고 staged는 없다. 실제 diff와 추가 소스의 비밀정보·범위 검토에서 문제를 발견하지 않았다. 상대 경로·공백 검사 통과는 TypeScript 컴파일이나 테스트 통과를 뜻하지 않는다.
+
 ## #17 직접 등록 화면·초안 재개 — 승인된 작업 트리
 
 기준 브랜치 `feat/RegistrationService`, HEAD `f5e9ae8e6d435ff5a13a43ab7ad1621d661d3199`, 시작 시 staged/unstaged/untracked 없음. #16 후속 보완 커밋과 기존 Backend·V4는 그대로 보존했다. 이슈 #17은 조회 당시 open·댓글 0이며 본문 선행 #2·#3 표기를 수정하지 않았다. 실제 선행 기능은 #14·#15다.
