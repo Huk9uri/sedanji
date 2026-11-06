@@ -57,7 +57,7 @@ describe('public and approval workflow', () => {
     const mention = { id: 9, videoId: 'RMTJPFKRbEk', videoTitle: '영상', extractedName: '뽀요베리', extractedAddress: '', sourceLine: 1, evidence: '원문', disposition: 'OPEN', matchStatus: 'MATCHED' };
     api.mockImplementation(async (path, options) => {
       if (path === '/restaurants') return [];
-      if (path === '/session') return { authenticated: true };
+      if (path === '/session') return { authenticated: true, username: 'admin' };
       if (path === '/admin/videos') return [];
       if (path === '/admin/mentions') return [];
       if (path === '/admin/candidates') return [mention];
@@ -66,6 +66,7 @@ describe('public and approval workflow', () => {
       if (path.endsWith('/places')) return { complete: true, candidates: [{ id: '1158460117', name: '뽀요베리', roadAddress: '서울 마포구 월드컵로13길 55-15', placeUrl: restaurant.placeUrl }] };
     });
     render(<App/>); fireEvent.click(screen.getByRole('button', { name: '관리자' }));
+    fireEvent.click(await screen.findByRole('button', { name: '기존 후보 검토' }));
     const approve = await screen.findByRole('button', { name: '관계 승인하고 공개' });
     expect(approve).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Kakao 검색' }));

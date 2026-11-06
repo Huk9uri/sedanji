@@ -18,3 +18,8 @@ export type CreateDraft = Values & PlaceIdentity;
 export interface DirectResult { mentionId: number; restaurantId: number; version: number; verificationStatus: string; publicationStatus: string }
 export interface ApprovalResult { draftId: number; draftVersion: number; draftStatus: 'APPLIED'; mentionId: number; restaurantId: number; mentionVersion: number; verificationStatus: string; publicationStatus: string }
 export interface RestaurantChoice { id: number; name: string; roadAddress: string | null; address: string | null }
+export type RegistrationEntry = { kind: 'new' } | { kind: 'addRelation'; restaurantId: number } | { kind: 'resumeDraft'; draftId: number };
+export interface RegistrationCommitted {
+  kind: 'draftCreated' | 'draftUpdated' | 'directApproved' | 'draftApproved'; restaurantId: number;
+  previousRestaurantId?: number; draftId?: number; mentionId?: number;
+}

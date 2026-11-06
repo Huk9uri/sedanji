@@ -5,11 +5,11 @@
 ## 현재 TSX 구조와 계획
 
 - 현재 React 19 + TypeScript/TSX + Vite + 일반 CSS다. 의존성·명령은 `package.json`, 잠금 버전은 `package-lock.json`으로 확인한다.
-- `src/main.tsx`가 진입점, `src/App.tsx`가 공개 지도·관리자와 page 상태 전환을 담당한다. 상태는 React hooks로 관리한다. `src/features/admin/CandidateReviewCard.tsx`는 분리된 후보 검토 기능이다.
+- `src/main.tsx`가 진입점, `src/App.tsx`가 공개 지도·관리자 인증과 외부 이동을 담당한다. #18의 `features/admin/AdminWorkspace.tsx`가 관리자 목록·상세·등록 진입·후보 보조 화면과 복귀 상태를 관리한다. 상태는 React hooks로 관리한다. 기존 후보 검토는 `LegacyCandidateReview.tsx`·`CandidateReviewCard.tsx`에 보존한다.
 - React Router, TanStack Query, Tailwind CSS, shadcn/ui는 기존 기본 선택·향후 도입 대상이며 현재 사용 중이 아니다. 승인 없이 추가하거나 하네스 정비와 함께 전환하지 않는다.
 - 기능 중심 디렉터리를 필요한 범위에서 확장하되 app/pages/entities/shared 전체가 이미 있다고 가정하거나 일괄 재배치하지 않는다.
 - 사용자 모바일·관리자 웹은 목표 제품 방향이다. 현재 공개 웹 지도를 React Native·Expo 앱으로 표현하지 않으며 SDK·내비게이션·Expo Go 호환성은 실제 모바일 파일 확인 전 미확인으로 둔다.
-- #17 작업 트리에 `features/admin/registration`의 장소 선택→관계 입력, 직접 승인, 초안 저장·재개·수정·승인을 구현했다. 기존 후보 화면과 공개 지도는 유지한다. #18의 전체 관리 목록·상세, 정정·공개 제어 UI는 제외 상태다. `../docs/ADMIN_API.md`의 현재 계약과 목표 설계를 구분하며 미구현 API를 호출하거나 가짜 성공을 표시하지 않는다.
+- #17 직접 등록·초안 흐름에 이어 #18 작업 트리는 관리자 식당 검색·필터·목록·관계 상세·초안 재개와 기존 식당의 고정 관계 추가를 연결한다. 관계 추가는 restaurantId 기반 초안을 명시적으로 저장한 뒤 승인하며 직접 승인 DTO를 확장하지 않는다. 정정·공개 제어·이력 실행 UI와 제보 처리는 제외다. `../docs/ADMIN_API.md`의 현재 계약과 목표 설계를 구분하며 미구현 API를 호출하거나 가짜 성공을 표시하지 않는다.
 
 근거: `package.json`, `tsconfig.json`, `vite.config.ts`, `src/main.tsx`, `src/App.tsx`, `../docs/REQUIREMENTS.md`, `../docs/DIRECT_REGISTRATION_MIGRATION.md`.
 
