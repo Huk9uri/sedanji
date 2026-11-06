@@ -93,7 +93,15 @@ public class CorrectionService {
         store.db().update("insert into admin_request_receipts(admin_id,idempotency_key,request_path,request_hash,response_status,response_body,expires_at) values (?,?,?,?,?,cast(? as jsonb),now()+interval '24 hours')",actor,key,path,hash,status,store.json(result));
     }
     private void audit(CorrectionKind kind,CorrectionStore.Revision revision,AdminUserEntity actor,String action,JsonNode before,JsonNode after) {
+        audit(kind,revision,actor,action,before,after,null);
+    }
+    /** Scalars captured before mutation; no mutable query tree or post-apply recomputation. */
+    private record ApprovalConfirmation(int schemaVersion,String expectedImpactHash,String validatedImpactHash,
+        long targetVersion,long revisionVersion,long impactTotalElements,long publicImpactCount) {}
+    private void audit(CorrectionKind kind,CorrectionStore.Revision revision,AdminUserEntity actor,String action,
+                       JsonNode before,JsonNode after,ApprovalConfirmation confirmation) {
         var envelope=store.object();envelope.put("actorId",actor.getId());envelope.put("actorUsername",actor.getUsername());
+        if(confirmation!=null)envelope.set("approvalConfirmation",store.mapper().valueToTree(confirmation));
         envelope.set("revision",store.detail(kind,revision,0,20));envelope.set("target",after);
         Long mention=kind==CorrectionKind.MENTION?revision.target():null;
         Long restaurant=kind==CorrectionKind.RESTAURANT?Long.valueOf(revision.target()):kind==CorrectionKind.MENTION?Long.valueOf(after.path("restaurantId").asLong()):null;
@@ -139,7 +147,11 @@ public class CorrectionService {
         if(rebase) {
             version(current.path("version").asLong(),body.get("expectedBaseVersion"),"STALE_BASE_VERSION");
             var next=store.values(kind,current);
-            if(base.isNull()) {
+            if(kind==CorrectionKind.RESTAURANT) {
+                // The official place is one complete stored snapshot, including fields
+                // that happened to equal the previous baseline and nullable addresses.
+                next=values.deepCopy();
+            } else if(base.isNull()) {
                 // Legacy proposals are explicit stored values, never guessed baseline data.
                 next=values.deepCopy();
                 CorrectionInput.mentionChanges(next,next.deepCopy());
@@ -176,6 +188,9 @@ public class CorrectionService {
         if(!revision.references().equals(store.references(kind,revision.proposal())))throw CorrectionException.conflict("STALE_BASE_VERSION");
         var detail=store.detail(kind,revision,0,20);
         if(!detail.path("impactHash").asText().equals(body.path("expectedImpactHash").asText()))throw CorrectionException.conflict("IMPACT_CHANGED");
+        var confirmation=new ApprovalConfirmation(1,body.path("expectedImpactHash").asText(),detail.path("impactHash").asText(),
+            current.path("version").asLong(),revision.version(),detail.path("impact").path("totalElements").asLong(),
+            detail.path("publicImpactCount").asLong());
         if(store.changed(kind,current,revision.proposal()).isEmpty())throw new CorrectionException(400,"NO_CHANGES","적용할 변경이 없습니다.");
         var p=revision.proposal();
         switch(kind) {
@@ -190,7 +205,7 @@ public class CorrectionService {
         em.flush();
         String extra=kind==CorrectionKind.MENTION?",applied_mention_id="+revision.target():"";
         store.db().update("update "+kind.table+" set status='APPLIED',version=version+1,applied_by=?,applied_at=clock_timestamp(),updated_by=?,updated_at=clock_timestamp()"+extra+" where id=?",actor.getId(),actor.getId(),id);
-        var after=store.snapshot(kind,revision.target());var applied=store.revision(kind,id,false);audit(kind,applied,actor,"CORRECTION_APPROVED",current,after);
+        var after=store.snapshot(kind,revision.target());var applied=store.revision(kind,id,false);audit(kind,applied,actor,"CORRECTION_APPROVED",current,after,confirmation);
         var result=store.detail(kind,applied,0,20);result.put("targetVersion",after.path("version").asLong());
         if(kind==CorrectionKind.MENTION){result.put("restaurantId",after.path("restaurantId").asLong());result.put("previousRestaurantId",current.path("restaurantId").asLong());result.put("mentionId",revision.target());}
         receipt(actor.getId(),key,path,hash,200,result);return result;

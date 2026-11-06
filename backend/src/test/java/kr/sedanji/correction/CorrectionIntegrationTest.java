@@ -7,6 +7,9 @@ import kr.sedanji.ExternalApis;
 import kr.sedanji.Models.Place;
 import kr.sedanji.PlaceSelectionService;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -246,5 +249,121 @@ class CorrectionIntegrationTest {
             assertThat(old.stream().flatMap(r->r.mentions().stream()).map(s->s.chefName()).toList()).contains("같은 셰프").doesNotContain("새 공개 표기");
             assertThat(publishedRestaurants.findPublishedRestaurants().stream().flatMap(r->r.mentions().stream()).map(s->s.chefName()).toList()).contains("새 공개 표기").doesNotContain("같은 셰프");
         }finally{release.countDown();pool.shutdownNow();}
+    }
+    JsonNode confirmationRevision(CorrectionKind kind)throws Exception {
+        if(kind==CorrectionKind.MENTION)return create(m1,Map.of("mentionType","REGULAR"));
+        if(kind==CorrectionKind.CHEF)return postJson("/api/admin/chefs/"+c1+"/revisions",Map.of("expectedVersion",0,"proposedName","승인 확인 이름","changeReason","확인 사유"),"confirm-create",201);
+        var session=new MockHttpSession();var place=new Place("123","승인 확인 장소",null,"공식 지번",128,36,"https://place.map.kakao.com/123");
+        kr.sedanji.PlaceSelectionFixtures.places(external,"확인 장소",place);
+        var token=selections.search("확인 장소","admin",session).candidates().get(0).placeSelectionToken();
+        var result=facade.write(kind,r1,"create",json(Map.of("expectedVersion",0,"placeSelectionToken",token,"changeReason","확인 사유")),"confirm-place-create","/api/admin/restaurants/"+r1+"/revisions","admin",session);
+        session.invalidate();clearInvocations(external);return mapper.readTree(mapper.writeValueAsString(result));
+    }
+    JsonNode approvedEvent(CorrectionKind kind,JsonNode revision)throws Exception {
+        var history=getJson("/api/admin/"+kind.targets+"/"+revision.path("targetId").asLong()+"/history");
+        for(var event:history.path("items"))if(event.path("action").asText().equals("CORRECTION_APPROVED"))return event;
+        throw new AssertionError("승인 감사가 없습니다.");
+    }
+    @ParameterizedTest @EnumSource(CorrectionKind.class)
+    void approvalConfirmationPreservesPreApplyHashForEveryKindAndReplay(CorrectionKind kind)throws Exception {
+        var revision=confirmationRevision(kind);String h0=revision.path("impactHash").asText();
+        String path="/api/admin/"+kind.route+"/"+revision.path("id").asLong()+"/approve";
+        var body=Map.of("expectedVersion",revision.path("version").asLong(),"expectedImpactHash",h0);
+        var applied=postJson(path,body,"confirm-apply",200);String h1=applied.path("impactHash").asText();assertThat(h1).isNotEqualTo(h0);
+        var event=approvedEvent(kind,revision);var confirmation=event.path("afterValue").path("approvalConfirmation");
+        assertThat(confirmation.path("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(confirmation.path("expectedImpactHash").asText()).isEqualTo(h0);
+        assertThat(confirmation.path("validatedImpactHash").asText()).isEqualTo(h0);
+        assertThat(confirmation.path("targetVersion").asLong()).isEqualTo(revision.path("currentSnapshot").path("version").asLong());
+        assertThat(confirmation.path("revisionVersion").asLong()).isEqualTo(revision.path("version").asLong());
+        assertThat(confirmation.path("impactTotalElements").asLong()).isEqualTo(revision.path("impact").path("totalElements").asLong());
+        assertThat(confirmation.path("publicImpactCount").asLong()).isEqualTo(revision.path("publicImpactCount").asLong());
+        assertThat(event.path("afterValue").path("revision").path("impactHash").asText()).isEqualTo(h1);
+        long countBefore=count("admin_audit_events");assertThat(postJson(path,body,"confirm-apply",200)).isEqualTo(applied);
+        assertThat(count("admin_audit_events")).isEqualTo(countBefore);assertThat(approvedEvent(kind,revision)).isEqualTo(event);
+        db.update("update chefs set name='이후 표시 변경',version=version+1 where id=?",c1);
+        db.update("update mentions set version=version+1 where id=?",m3);
+        assertThat(approvedEvent(kind,revision)).isEqualTo(event);
+        for(var other:getJson("/api/admin/"+kind.targets+"/"+revision.path("targetId").asLong()+"/history").path("items"))
+            if(!other.path("action").asText().equals("CORRECTION_APPROVED"))assertThat(other.path("afterValue").has("approvalConfirmation")).isFalse();
+        verifyNoInteractions(external);
+    }
+    @Test void confirmationUsesAllImpactRowsRatherThanTheFirstPageAndRejectsWrongHashWithoutWrites()throws Exception {
+        for(int i=0;i<24;i++){long other=restaurant("impact-"+i);mention(other,c1,i%2==0?"PUBLISHED":"SUSPENDED");}
+        var revision=confirmationRevision(CorrectionKind.CHEF);
+        assertThat(revision.path("impact").path("items").size()).isEqualTo(20);assertThat(revision.path("impact").path("totalElements").asInt()).isEqualTo(26);
+        assertThat(revision.path("publicImpactCount").asInt()).isEqualTo(14);
+        String path="/api/admin/chef-revisions/"+revision.path("id").asLong();
+        var pageTwo=getJson(path+"?impactPage=1&impactSize=20");assertThat(pageTwo.path("impact").path("items").size()).isEqualTo(6);assertThat(pageTwo.path("impactHash")).isEqualTo(revision.path("impactHash"));
+        var before=store.snapshot(CorrectionKind.CHEF,c1);var beforeDraft=store.revision(CorrectionKind.CHEF,revision.path("id").asLong(),false).row();
+        long audits=count("admin_audit_events"),receipts=count("admin_request_receipts");
+        assertThat(postJson(path+"/approve",Map.of("expectedVersion",0,"expectedImpactHash","0".repeat(64)),"wrong-impact",409).path("code").asText()).isEqualTo("IMPACT_CHANGED");
+        assertThat(store.snapshot(CorrectionKind.CHEF,c1)).isEqualTo(before);assertThat(store.revision(CorrectionKind.CHEF,revision.path("id").asLong(),false).row()).isEqualTo(beforeDraft);
+        assertThat(count("admin_audit_events")).isEqualTo(audits);assertThat(count("admin_request_receipts")).isEqualTo(receipts);
+        postJson(path+"/approve",Map.of("expectedVersion",0,"expectedImpactHash",pageTwo.path("impactHash").asText()),"all-impact",200);
+        var confirmation=approvedEvent(CorrectionKind.CHEF,revision).path("afterValue").path("approvalConfirmation");
+        assertThat(confirmation.path("validatedImpactHash")).isEqualTo(revision.path("impactHash"));assertThat(confirmation.path("impactTotalElements").asInt()).isEqualTo(26);assertThat(confirmation.path("publicImpactCount").asInt()).isEqualTo(14);
+    }
+    @Test void failedApprovalAuditRollsBackConfirmationTargetDraftAndReceiptTogether()throws Exception {
+        var revision=confirmationRevision(CorrectionKind.CHEF);long id=revision.path("id").asLong();
+        var before=store.snapshot(CorrectionKind.CHEF,c1);var draftBefore=store.revision(CorrectionKind.CHEF,id,false).row();long audits=count("admin_audit_events"),receipts=count("admin_request_receipts");
+        db.execute("create function confirmation_test_fail() returns trigger language plpgsql as $$ begin if new.action='CORRECTION_APPROVED' then raise exception 'test-only audit failure'; end if; return new; end $$");
+        db.execute("create trigger confirmation_test_failure before insert on admin_audit_events for each row execute function confirmation_test_fail()");
+        try {
+            assertThatThrownBy(()->facade.write(CorrectionKind.CHEF,id,"approve",json(Map.of("expectedVersion",0,"expectedImpactHash",revision.path("impactHash").asText())),"confirm-failure","/api/admin/chef-revisions/"+id+"/approve","admin",null)).isInstanceOf(RuntimeException.class);
+        }finally{db.execute("drop trigger confirmation_test_failure on admin_audit_events");db.execute("drop function confirmation_test_fail()");}
+        assertThat(store.snapshot(CorrectionKind.CHEF,c1)).isEqualTo(before);assertThat(store.revision(CorrectionKind.CHEF,id,false).row()).isEqualTo(draftBefore);
+        assertThat(count("admin_audit_events")).isEqualTo(audits);assertThat(count("admin_request_receipts")).isEqualTo(receipts);
+        assertThat(db.queryForObject("select count(*) from admin_audit_events where after_value ? 'approvalConfirmation'",Long.class)).isZero();
+    }
+    @ParameterizedTest @ValueSource(booleans={true,false})
+    void restaurantRebaseKeepsTheEntireOfficialProposalIncludingPreviouslyUnchangedAndNullFields(boolean nullAddress)throws Exception {
+        String address=nullAddress?null:"공식 지번";
+        db.update("update restaurants set name='기준 상호',road_address='공식 도로',address=? where id=?",address,r1);
+        var official=new Place("123","공식 상호","공식 도로",address,127,37,"https://place.map.kakao.com/123");
+        var session=new MockHttpSession();kr.sedanji.PlaceSelectionFixtures.places(external,"공식 전체",official);
+        String token=selections.search("공식 전체","admin",session).candidates().get(0).placeSelectionToken();
+        var created=facade.write(CorrectionKind.RESTAURANT,r1,"create",json(Map.of("expectedVersion",0,"placeSelectionToken",token,"changeReason","공식 전체 유지")),"whole-create","/api/admin/restaurants/"+r1+"/revisions","admin",session);
+        long id=created.path("id").asLong();String path="/api/admin/restaurant-revisions/"+id;
+        var storedProposal=getJson(path).path("proposedValues");
+        assertThat(created.path("changedFields").size()).isEqualTo(1);assertThat(created.path("changedFields").get(0).asText()).isEqualTo("name");
+        session.invalidate();clearInvocations(external);
+        // Simulate a newer baseline in the temporary DB; no actual development DB is used.
+        db.update("update restaurants set name='다른 원본',road_address='나중 도로',address='나중 지번',latitude=38,place_url='https://place.map.kakao.com/123?previous=1',version=version+1 where id=?",r1);
+        var current=store.snapshot(CorrectionKind.RESTAURANT,r1);var other=store.snapshot(CorrectionKind.RESTAURANT,r2);var publicBefore=getJson("/api/restaurants");
+        var before=store.revision(CorrectionKind.RESTAURANT,id,false).row();
+        assertThat(postJson(path+"/rebase",Map.of("expectedVersion",9,"expectedBaseVersion",1),"none",409).path("code").asText()).isEqualTo("STALE_VERSION");
+        assertThat(postJson(path+"/rebase",Map.of("expectedVersion",0,"expectedBaseVersion",0),"none",409).path("code").asText()).isEqualTo("STALE_BASE_VERSION");
+        assertThat(store.revision(CorrectionKind.RESTAURANT,id,false).row()).isEqualTo(before);
+        var rebased=postJson(path+"/rebase",Map.of("expectedVersion",0,"expectedBaseVersion",1),"none",200);
+        assertThat(rebased.path("baseVersion").asLong()).isEqualTo(1);assertThat(rebased.path("version").asLong()).isEqualTo(1);assertThat(rebased.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(rebased.path("baseSnapshot")).isEqualTo(current);assertThat(rebased.path("proposedValues")).isEqualTo(storedProposal);
+        assertThat(rebased.path("proposedValues").path("address").isNull()).isEqualTo(nullAddress);
+        assertThat(rebased.path("changedFields").toString()).contains("roadAddress","address").doesNotContain("longitude");
+        assertThat(store.snapshot(CorrectionKind.RESTAURANT,r1)).isEqualTo(current);assertThat(getJson("/api/restaurants")).isEqualTo(publicBefore);
+        var event=getJson("/api/admin/restaurants/"+r1+"/history").path("items").get(0);
+        assertThat(event.path("action").asText()).isEqualTo("CORRECTION_REBASED");assertThat(event.path("afterValue").has("approvalConfirmation")).isFalse();
+        assertThat(event.path("beforeValue").path("proposedValues")).isEqualTo(storedProposal);
+        postJson(path+"/approve",Map.of("expectedVersion",1,"expectedImpactHash",rebased.path("impactHash").asText()),"whole-apply",200);
+        var applied=store.snapshot(CorrectionKind.RESTAURANT,r1);
+        for(String field:CorrectionInput.PLACE_FIELDS)assertThat(store.same(applied.path(field),storedProposal.path(field))).as(field).isTrue();
+        assertThat(applied.path("kakaoPlaceId").asText()).isEqualTo("123");assertThat(applied.path("version").asLong()).isEqualTo(2);
+        assertThat(store.snapshot(CorrectionKind.RESTAURANT,r2)).isEqualTo(other);verifyNoInteractions(external);
+    }
+    @Test void onlyExplicitOfficialTokenPatchReplacesTheWholeRestaurantProposal()throws Exception {
+        var revision=confirmationRevision(CorrectionKind.RESTAURANT);long id=revision.path("id").asLong();String path="/api/admin/restaurant-revisions/"+id;
+        var original=getJson(path).path("proposedValues");var publicBefore=getJson("/api/restaurants");
+        mvc.perform(patch(path).with(csrf()).contentType("application/json").content("{\"expectedVersion\":0,\"name\":\"수동 덮어쓰기\"}")).andExpect(status().isBadRequest());
+        assertThat(getJson(path).path("proposedValues")).isEqualTo(original);
+        var reasonOnly=mapper.readTree(mvc.perform(patch(path).with(csrf()).contentType("application/json").content("{\"expectedVersion\":0,\"changeReason\":\"사유만 변경\"}")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(reasonOnly.path("proposedValues")).isEqualTo(original);
+        var place=new Place("123","새 공식 상호","새 공식 도로",null,126.5,35.5,"https://place.map.kakao.com/123");
+        var session=new MockHttpSession();kr.sedanji.PlaceSelectionFixtures.places(external,"재선택",place);String token=selections.search("재선택","admin",session).candidates().get(0).placeSelectionToken();clearInvocations(external);
+        var replaced=facade.write(CorrectionKind.RESTAURANT,id,"patch",json(Map.of("expectedVersion",1,"placeSelectionToken",token)),null,path,"admin",session);
+        assertThat(replaced.path("version").asLong()).isEqualTo(2);
+        assertThat(replaced.path("proposedValues").path("name").asText()).isEqualTo(place.name());assertThat(replaced.path("proposedValues").path("roadAddress").asText()).isEqualTo(place.roadAddress());
+        assertThat(replaced.path("proposedValues").path("address").isNull()).isTrue();assertThat(replaced.path("proposedValues").path("longitude").asDouble()).isEqualTo(place.longitude());
+        assertThat(replaced.path("proposedValues").path("latitude").asDouble()).isEqualTo(place.latitude());assertThat(replaced.path("proposedValues").path("placeUrl").asText()).isEqualTo(place.placeUrl());
+        assertThat(getJson("/api/restaurants")).isEqualTo(publicBefore);verifyNoInteractions(external);
     }
 }

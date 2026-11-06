@@ -10,7 +10,12 @@ export interface Revision extends RevisionSummary {
   targetVersion?: number; restaurantId?: number; previousRestaurantId?: number; mentionId?: number;
 }
 export interface RevisionList extends Page<RevisionSummary> { target: Snapshot }
-export interface HistoryEvent { id: number; actorId: number; action: string; reason: string | null; occurredAt: string; beforeValue: Snapshot | null; afterValue: Snapshot | null }
+export interface ApprovalConfirmation {
+  schemaVersion: number; expectedImpactHash: string; validatedImpactHash: string; targetVersion: number;
+  revisionVersion: number; impactTotalElements: number; publicImpactCount: number;
+}
+export type AuditValue = Snapshot & { approvalConfirmation?: ApprovalConfirmation };
+export interface HistoryEvent { id: number; actorId: number; action: string; reason: string | null; occurredAt: string; beforeValue: Snapshot | null; afterValue: AuditValue | null }
 export const paths = {
   MENTION: { target: 'mentions', collection: 'corrections', revision: 'mention-corrections' },
   RESTAURANT: { target: 'restaurants', collection: 'revisions', revision: 'restaurant-revisions' },

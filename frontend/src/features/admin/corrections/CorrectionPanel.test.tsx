@@ -87,3 +87,34 @@ it('does not replace an approved result with an earlier comparison response',asy
   await act(async()=>resolve(draft));expect(screen.getByText(/APPLIED · 적용 완료/)).toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'영향 확인 · 재승인'})).not.toBeInTheDocument();expect(correctionApi.write).toHaveBeenCalledTimes(1);
 });
+it('distinguishes stored pre-approval confirmation from post-apply snapshots and keeps legacy history readable',async()=>{
+  const h0='b'.repeat(64),h1='c'.repeat(64);
+  vi.mocked(correctionApi.history).mockResolvedValue({items:[
+    {id:2,actorId:1,action:'CORRECTION_APPROVED',reason:'승인 사유',occurredAt:'2026-11-07T01:00:00Z',beforeValue:{name:'이전 이름'},afterValue:{actorUsername:'처리 당시 관리자',approvalConfirmation:{schemaVersion:1,expectedImpactHash:h0,validatedImpactHash:h0,targetVersion:3,revisionVersion:2,impactTotalElements:26,publicImpactCount:14},target:{name:'적용 이름'},revision:{impactHash:h1}}},
+    {id:1,actorId:1,action:'PAST_EVENT',reason:'과거 사유',occurredAt:'2026-11-06T00:00:00Z',beforeValue:null,afterValue:{name:'과거 표시 이름'}},
+  ],totalElements:2,page:0,size:20,hasNext:false});
+  render(<CorrectionPanel {...props()}/>);
+  fireEvent.click(await screen.findByText(/^CORRECTION_APPROVED · 승인 사유/));
+  const confirmation=within(screen.getByRole('region',{name:'승인 당시 영향 확인'}));
+  expect(confirmation.getAllByText(h0)).toHaveLength(2);expect(confirmation.getByText('26개')).toBeInTheDocument();expect(confirmation.getByText('14개')).toBeInTheDocument();
+  expect(confirmation.getByText('3')).toBeInTheDocument();expect(confirmation.getByText('2')).toBeInTheDocument();expect(screen.queryByText(h1)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText(/^PAST_EVENT · 과거 사유/));expect(screen.getByText('과거 표시 이름')).toBeVisible();
+  expect(screen.getAllByRole('region',{name:'승인 당시 영향 확인'})).toHaveLength(1);expect(correctionApi.write).not.toHaveBeenCalled();
+});
+it('explains that restaurant rebase preserves the stored whole official proposal',async()=>{
+  const restaurant={id:10,version:1,name:'현재 장소',roadAddress:'현재 도로',address:'현재 지번',longitude:127,latitude:37,placeUrl:'https://place.map.kakao.com/123'};
+  const official={name:'공식 장소',roadAddress:'공식 도로',address:null,longitude:127,latitude:37,placeUrl:'https://place.map.kakao.com/123'};
+  const revision:Revision={...draft,kind:'RESTAURANT',targetId:10,baseConflict:true,currentSnapshot:restaurant,proposedValues:official};
+  vi.mocked(correctionApi.list).mockResolvedValue({...list,target:restaurant,items:[revision]});vi.mocked(correctionApi.get).mockResolvedValue(revision);
+  vi.mocked(correctionApi.write).mockResolvedValue({...revision,baseVersion:1,version:1,baseConflict:false});
+  render(<CorrectionPanel {...props()} target={{kind:'RESTAURANT',id:10}}/>);
+  fireEvent.click(await screen.findByRole('button',{name:/정정안 #10 · DRAFT/}));await screen.findByRole('table');
+  expect(screen.getByText(/기준 갱신은 기준본만 갱신하며 저장된 공식 장소 제안 전체를 유지/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'비교한 현재본으로 기준 갱신'}));
+  await waitFor(()=>expect(correctionApi.write).toHaveBeenCalledWith({kind:'RESTAURANT',id:10},10,'rebase',{expectedVersion:0,expectedBaseVersion:1},undefined));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'정정안 저장'})).toBeEnabled());
+  expect(within(screen.getByRole('table')).getByText('공식 도로')).toBeInTheDocument();
+  const addressRow=within(screen.getByRole('table')).getByRole('row',{name:/지번 주소/});
+  expect(within(addressRow).getAllByRole('cell')[2]).toHaveTextContent('미확인');
+  expect(correctionApi.write).toHaveBeenCalledTimes(1);
+});

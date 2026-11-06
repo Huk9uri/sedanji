@@ -7,7 +7,7 @@ import { restaurantApi } from '../restaurants/restaurantApi';
 import type { Chef, Video } from '../registration/types';
 import type { Page, RestaurantItem } from '../restaurants/types';
 import { correctionApi } from './correctionApi';
-import type { CorrectionTarget, HistoryEvent, Revision, RevisionList, Snapshot } from './types';
+import type { AuditValue, CorrectionTarget, HistoryEvent, Revision, RevisionList, Snapshot } from './types';
 
 const labels: Record<string, string> = { chefId:'셰프 ID', restaurantId:'식당 ID', videoId:'현재 영상 ID', mentionType:'관계 유형', timestampSeconds:'시점(초)', verificationNote:'검증 메모', name:'이름', roadAddress:'도로명 주소', address:'지번 주소', longitude:'경도', latitude:'위도', placeUrl:'장소 링크', evidence:'보존한 원본 근거', candidateId:'원본 후보 ID', candidateEvidence:'원본 후보 근거', candidateVideoId:'원본 후보 영상 ID', candidateVideoTitle:'원본 후보 영상', version:'버전', chefName:'셰프', restaurantName:'식당', videoTitle:'현재 영상', verificationStatus:'검증 상태', publicationStatus:'공개 상태' };
 function display(value: unknown): string { return value === null || value === undefined ? '미확인' : String(value); }
@@ -15,10 +15,15 @@ function SnapshotView({ value }: { value: Snapshot | null }) {
   if (!value) return <p>기준 스냅샷 없음 · 명시적 기준 갱신이 필요합니다.</p>;
   return <dl>{Object.keys(labels).filter(key => key in value).map(key => <div key={key}><dt>{labels[key]}</dt><dd>{display(value[key])}</dd></div>)}</dl>;
 }
-function AuditSnapshot({ value }: { value: Snapshot | null }) {
+function AuditSnapshot({ value }: { value: AuditValue | null }) {
   if(!value)return <SnapshotView value={null}/>;
   const nested=(key:string)=>typeof value[key]==='object'&&value[key]!==null?value[key] as Snapshot:null;
-  return <><SnapshotView value={nested('target')??nested('currentSnapshot')??nested('mention')??nested('draft')??value}/>{nested('baseSnapshot')&&<><p>처리 당시 기준본</p><SnapshotView value={nested('baseSnapshot')}/></>}{nested('proposedValues')&&<><p>처리 당시 제안값</p><SnapshotView value={nested('proposedValues')}/></>}{nested('revision')&&<details><summary>처리 당시 정정안</summary><AuditSnapshot value={nested('revision')}/></details>}</>;
+  const confirmation=value.approvalConfirmation;
+  return <>{confirmation&&<section aria-label="승인 당시 영향 확인"><h4>승인 당시 영향 확인</h4><dl>
+    <dt>승인 요청 hash</dt><dd>{confirmation.expectedImpactHash}</dd><dt>적용 전 서버 검증 hash</dt><dd>{confirmation.validatedImpactHash}</dd>
+    <dt>승인 당시 대상 버전</dt><dd>{confirmation.targetVersion}</dd><dt>승인 당시 정정안 버전</dt><dd>{confirmation.revisionVersion}</dd>
+    <dt>전체 영향 관계</dt><dd>{confirmation.impactTotalElements}개</dd><dt>공개 영향 관계</dt><dd>{confirmation.publicImpactCount}개</dd>
+  </dl></section>}<SnapshotView value={nested('target')??nested('currentSnapshot')??nested('mention')??nested('draft')??value}/>{nested('baseSnapshot')&&<><p>처리 당시 기준본</p><SnapshotView value={nested('baseSnapshot')}/></>}{nested('proposedValues')&&<><p>처리 당시 제안값</p><SnapshotView value={nested('proposedValues')}/></>}{nested('revision')&&<details><summary>처리 당시 정정안</summary><AuditSnapshot value={nested('revision')}/></details>}</>;
 }
 interface Pending { id: number | null; action: 'create' | 'patch' | 'approve' | 'rebase'; body: Snapshot; key?: string }
 export default function CorrectionPanel({ target, username, authGeneration, onExpired, onGuard, onBack, onApproved }: {
@@ -181,6 +186,7 @@ export default function CorrectionPanel({ target, username, authGeneration, onEx
       </>}
       {list&&!eligible&&<p>승인된 관계만 정정할 수 있습니다. 이력은 조회할 수 있습니다.</p>}
       {list&&!readonly&&<fieldset disabled={disabled||!eligible}><legend>정정 제안 · 기존 자료만 선택</legend>
+        {target.kind==='RESTAURANT'&&<p>기준 갱신은 기준본만 갱신하며 저장된 공식 장소 제안 전체를 유지합니다. 새 공식 정보는 장소를 다시 선택해 저장하세요. 이전 방식으로 혼합된 제안은 자동 복구되지 않으므로 공식 결과를 다시 선택하세요.</p>}
         {target.kind==='MENTION'&&<>
           <label>정정 셰프<select value={String(values.chefId??'')} onChange={e=>setValues(v=>({...v,chefId:Number(e.target.value)}))}><option value="">선택</option>{chefs.map(c=><option key={c.id} value={c.id}>{c.name} · ID {c.id}</option>)}</select></label>
           <label>정정 영상<select value={String(values.videoId??'')} onChange={e=>setValues(v=>({...v,videoId:e.target.value}))}><option value="">선택</option>{videos.map(v=><option key={v.id} value={v.id}>{v.title} · {v.id}</option>)}</select></label>

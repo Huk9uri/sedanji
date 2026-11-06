@@ -2,6 +2,20 @@
 
 작성일: 2026-11-02. 현황 갱신일: 2026-11-07. 상태: #19 작업 트리와 과거 구현·검증 기록을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
 
+## #19 Handoff v3 — 승인 확인 감사·공식 장소 rebase 보완
+
+기준 `feat/AdminPage` / `13b9b14b5561e3af48869ea47aff79f6e9d37380`, 시작 staged·unstaged·untracked 없음. 2026-11-07 사용자가 v3 구현과 기존 `verify.ps1 -Backend -Frontend` 실행을 승인했다. Implementer·API Change·DB Migration·Verification 및 루트·Backend·Frontend 지침을 확인했다. 기존 사용자 변경·V1~V5·공개 DTO·생성/PATCH/rebase 감사·과거 감사는 보존한다.
+
+- `CorrectionService`: 승인 전 전체 영향 hash와 건수·대상/정정안 version을 불변 record로 캡처하여 감사에 전달한다. 적용 후 조회 스냅샷과 분리하며 새 감사의 approvalConfirmation에만 저장한다. Restaurant rebase는 저장된 공식 제안 전체를 보존하고 기준·변경 필드만 다시 계산한다. Mention·Chef rebase·잠금·영수증·원자성은 유지한다.
+- `CorrectionPanel`·타입: 선택적 승인 확인 객체를 처리하고 “승인 당시 영향 확인”을 표시한다. 필드 없는 과거 이력은 기존대로 표시하며, Restaurant 기준 갱신/재선택·구버전 혼합 제안의 수동 재선택을 안내한다. 새 UI 구조·의존성·메뉴는 추가하지 않는다.
+- PostgreSQL assertion: 세 종류 승인 H0 저장과 적용 후 H1 구분, 26개 전체 영향(첫 페이지 20개)·공개 14개, 잘못된 hash 무부작용, 같은 키 재생·이후 참조 변경에도 감사 불변, 감사 실패의 원본/정정안/확인 객체/영수증 롤백을 보강한다. Restaurant의 이전 기준과 같던 주소·좌표·URL 및 null 주소 보존, stale version 거부, 최신 기준·version·감사 반영과 공개 JSON 불변, 승인 시 전체 공식 값 적용·Kakao ID/다른 식당 보존, 공식 토큰 PATCH만 전체 제안을 교체하는 사례를 검증한다. 기존 Mention rebase·GET 전용 재시도 회귀는 보존한다.
+
+기존 Backend 199개·Frontend 97개 PASS는 v2 실행 기록이다. 이번 v3 작업 트리의 `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend` 실행에서 Backend 본체/테스트 컴파일·207개 테스트(실패/skip 0), Frontend 타입 검사·빌드는 각각 PASS/0이었다. 기존 App 후보 승인 테스트 1건이 Kakao 검색 뒤 radio 대기에서 실패해 첫 전체 종료 코드는 1이다. 해당 후보 경로의 초기 GET/검색 POST 비동기 흐름을 확인한 뒤 코드·assertion·설정·timeout 변경 없이 동일 진입점의 `-Frontend`만 재실행했다. 재실행은 13개 파일·99개 테스트·타입 검사·빌드 PASS/0, 전체 종료 0이며 실패는 재현되지 않았다. 최초 실패를 삭제하거나 v2 PASS로 대체하지 않는다. 기존 후보 테스트의 간헐적 비동기 실패 가능성은 별도 검증 한계로 남긴다.
+
+Backend 패키징은 backend 디렉터리의 `.\gradlew.bat --gradle-user-home C:\workspace\sedanji\.tools\gradle-home --offline --no-daemon '-Porg.gradle.java.installations.auto-download=false' bootJar`로 PASS/0이다. 기존 실행 중인 Docker Engine·캐시된 이미지와 Testcontainers 임시 DB만 사용했다. Python은 변경 영향이 없어 NOT RUN(미선택), 실제 브라우저·개발/운영 DB·외부 API·배포 검증은 미실행이다. 실제 DB·외부 API·Docker/서버 시작·설치·다운로드·Git fetch/브랜치/커밋/Push/PR 편집은 수행하지 않는다. 신규 migration·과거 감사 수정·자동 백필·혼합 제안 자동 복구도 없다.
+
+정적 검토: 변경 추적 파일 7개·신규 파일 0개, 상대 import 14개·로컬 문서 참조 22개 누락 0, 공백/마지막 개행 문제 0, `git diff --check` 종료 0이다. 감사/공식 제안 보존 이외의 런타임 API·공개 DTO·migration·의존성 변경이 없으며 staged 변경도 없다.
+
 ## #19 전체 구현 — Handoff v2 D1~D9
 
 2026-11-07 사용자가 전체 1~3단위 구현을 승인했다. 기준은 `feat/AdminPage` / `7f36acd3873be4f9a3628f75b972fb110b2c15fa`, 시작 작업 트리는 깨끗했고 기존 #18 후속 3개 커밋을 보존했다. 루트·Backend·Frontend 지침과 Implementer·API Change·DB Migration·Verification Skill을 확인했다. 최초 실행 금지는 이후 사용자 검증 승인으로 해제됐다. 설치·실제 DB/외부 API·Docker/서버 시작·Git 변경 금지는 유지한다.
