@@ -2,16 +2,16 @@
 
 갱신일: 2026-11-06. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
 
-## #16 관리자 식당 조회 — 현재 작업 트리
+## #16 관리자 식당 조회 — 병합된 현재 계약
 
-기준 HEAD `852ca9b227fdf9502368a47391f33b76a8c1f8c3`에 신규 조회를 추가했다. 아래는 소스 계약이며 실행 검증·배포 완료를 뜻하지 않는다. 기존 API와 공개 DTO는 유지한다. 선행 참조는 #13이다.
+소스 기준: `feat/RegistrationService` / `c150b5149e2c1a6e161e1577c6d35bdd899f1466`. 이전 인계 기록에 따르면 #16은 PR #26으로 main의 `ce8ceeff27a8e7b7af9919ca05c69cab80ec66dd`에 병합됐으며 당시 정적 확인에서 두 커밋의 파일 차이가 없었다. 이번 보완에서는 로컬에 병합 커밋 객체가 없어 동일성을 재확인하지 못했다(fetch 미실행). 아래는 현재 체크아웃의 소스 계약이며 실제 DB 적용·배포 완료를 뜻하지 않는다. 기존 API와 공개 DTO는 유지한다. 선행 참조는 #13이다.
 
 - `GET /api/admin/restaurants?query=&publication=ALL&needsSourceReview=false&page=0&size=20`
 - `GET /api/admin/restaurants/{id}?mentionPage=0&mentionSize=20`
 
 세션 ADMIN과 DB 활성 관리자가 필요하다. GET에는 CSRF 토큰이 필요 없으며 쓰기 보호는 유지한다. 페이지는 0 이상, 크기는 1~100(기본 20), offset은 int 범위 이내다. 잘못된 숫자·enum·boolean, 중복·미지원 parameter(자유 sort 포함)는 400 `INVALID_QUERY`다. 빈 결과·범위 밖 페이지는 200과 실제 totalElements, 없는 상세는 404 `RESOURCE_NOT_FOUND`, 비활성 관리자는 403 `ADMIN_INACTIVE`, 예상 밖 실패는 500 `INTERNAL_ERROR`다. 신규 Controller 전용 오류는 `{code,message}`, Security 익명 401·권한 부족 403은 기존 빈 응답이다.
 
-query는 앞뒤 공백 제거 후 최대 100 Unicode 문자이며 내부 공백은 보존한다. 공백뿐이면 검색을 해제한다. 식당명·도로명·지번 주소·모든 실제 Mention의 셰프명을 DB lower 기준 부분 일치 OR로 검색한다. `%`, `_`, escape 문자 `!`는 리터럴이며 parameter binding한다. null 주소는 문자열로 변환하지 않는다. 초안·후보는 검색·집계에서 제외한다.
+query는 앞뒤 공백 제거 후 최대 100 Unicode code point이며 내부 공백은 보존한다. UTF-16 코드 단위 수와 구분한다. 공백뿐이면 검색을 해제한다. 식당명·도로명·지번 주소·모든 실제 Mention의 셰프명을 DB lower 기준 부분 일치 OR로 검색한다. `%`, `_`, escape 문자 `!`는 리터럴이며 parameter binding한다. null 주소는 문자열로 변환하지 않는다. 초안·후보는 검색·집계에서 제외한다.
 
 publication은 `ALL`(모든 식당), `PUBLISHED`(APPROVED AND PUBLISHED 관계 존재), `NO_PUBLIC_RELATION`(공개 관계 없음)이다. 검색·공개·출처 조건은 AND이며 서로 다른 관계로 충족해도 된다. 검색에 맞는 관계만으로 집계나 상세를 제한하지 않는다. `needsSourceReview=true`만 필터를 적용하고 false·생략은 필터를 해제한다.
 
@@ -54,7 +54,11 @@ Frontend 타입·래퍼·UI는 제외했다. 기존 소비자는 새 경로를 �
 
 검증 기록(2026-11-06): 샌드박스에서 Windows PowerShell 5.1의 실행 정책 레지스트리 읽기가 거부되어 최초 명령은 시작하지 못했다. 정책 변경 없이 권한 확장으로 동일 `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend`를 실행했다. Frontend 타입 검사·테스트 11개·빌드는 각각 PASS(0)였고 Backend는 새 테스트의 mock 접근 범위 컴파일 오류로 FAIL(전체 종료 1)이었다. 테스트 헬퍼 수정 후 동일 진입점의 `-Backend` 재검증은 컴파일·테스트 178개 PASS, 실패·skip 0, 전체 종료 0이다. Python은 관련 변경이 없어 미선택했다. 실제 개발 DB·외부 API·운영 성능 검증과 구분한다.
 
-## 현재 코드 계약 — #14·#15 작업 트리
+### 문서 정합성·테스트 보강 — 2026-11-06
+
+위 PASS/FAIL은 PR #26 구현 당시 기록이다. 사용자 승인 후 이번에는 혼합 출처 우선순위·distinct 집계, 거절 관계만 있는 식당과 다중 검색 일치, 상세 필드별 관계 ID 대응·외부 호출 없음, 범위 밖 페이지, Unicode 검색 길이, 상세 권한 assertion을 보강했다. 테스트·빌드·DB 실행은 기존 금지 범위를 유지해 NOT RUN이며 과거 통과 수치를 이번 변경의 검증 결과로 사용하지 않는다. 런타임 API·V4·Frontend는 변경하지 않았다.
+
+## 기존 API 계약 — #14·#15 구현 당시 기록
 
 기준: `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`와 #15 미커밋 구현. #14의 PR #23 병합은 이전 기록이며 로컬에 main 병합 커밋 객체가 없어 이번에 파일 동일성을 재확인하지 못했다(fetch 미실행). 다음은 로컬 소스 계약이며 배포 서버·개발 DB 상태를 뜻하지 않는다. **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
 
@@ -187,7 +191,7 @@ candidateId, appliedMentionId, createdBy, updatedBy, createdAt, updatedAt
 | D3 | `/videos` 후보 수집 + `/videos/metadata` 전용 → `/videos` 메타데이터 전용 | #17 전에 분리 경로 유지 또는 호환 전환 계획 결정. 기존 소비자의 후보 추출을 깨뜨리지 않음 |
 | D4 | 초안은 restaurantId 또는 토큰 지원, 직접 승인은 토큰 유지 | #14 구현. #15 승인: 저장된 restaurantId만 사용. #18 소비 흐름은 후속 |
 | D5 | 직접 승인·초안 생성 멱등 처리 → 다른 생성·승인 경로로 확장 | #14·#15 초안 승인 멱등 처리 구현. 셰프·정정 생성은 후속 |
-| D6 | 출처 확인 상태·재확인 API 없음 → 관리자 재확인·필터 | #16·#18 전에 저장 모델·실패 보존·판정 기준 설계. 영상 접근 불가만으로 관계를 숨기지 않음 |
+| D6 | 출처 판정 저장·필터와 실제 확인 producer 분리 | #16 V4·관리자 조회 구현. 실제 확인·갱신 API·마지막 시도 실패 기록은 후속 설계. 영상 접근 불가만으로 관계를 숨기지 않음 |
 
 D1·D4·D5의 #14·#15 범위는 위 현재 계약을 따른다. 나머지 항목과 후속 범위는 별도 결정 대상이며 문서 전체를 구현 승인으로 간주하지 않는다.
 

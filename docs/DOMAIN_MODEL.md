@@ -2,15 +2,17 @@
 
 갱신일: 2026-11-06. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
-## #16 출처 판정 저장·관리자 조회 — 현재 작업 트리
+## #16 출처 판정 저장·관리자 조회 — 병합된 현재 구현
 
-기준 HEAD `852ca9b227fdf9502368a47391f33b76a8c1f8c3`에 V4와 관리자 목록·상세 조회를 추가했다. ERD의 관계는 유지하고 Video에 source_check_reason을 포함한 판정 필드 3개만 추가한다. 아래 과거 V1~V3·출처 필드 부재 설명보다 이 절의 작업 트리 계약이 우선한다. 2026-11-06 권한 확장 재검증에서 Backend 컴파일·178개 테스트(실패·skip 0), Frontend 타입 검사·11개 테스트·빌드는 PASS다. 최초 실행 제한·테스트 컴파일 오류와 수정 후 재검증은 [API 검증 기록](ADMIN_API.md)에 구분했다. 실제 DB 적용·운영 상태는 확인하지 않았다.
+병합 상태는 이전 인계 기록을 따른다. 이번에는 로컬에 병합 커밋 객체가 없어 main과의 파일 동일성을 재확인하지 못했으며 fetch는 수행하지 않았다. 현재 코드 대조 기준은 아래 HEAD와 보완 작업 트리다.
+
+소스 기준 HEAD `c150b5149e2c1a6e161e1577c6d35bdd899f1466`. #16은 PR #26으로 main에 병합됐다. V4와 관리자 목록·상세 조회가 있으며 ERD의 관계는 유지하고 Video에 source_check_reason을 포함한 판정 필드 3개를 추가했다. 아래 #13·#14 설명은 과거 기록이며 이 절을 현재 기준으로 한다. Backend 178개·Frontend 11개 등 PASS 수치는 PR 구현 당시 검증 기록이며 이번 문서·테스트 보강은 실행 금지에 따라 NOT RUN이다. 상세 이력은 [API 검증 기록](ADMIN_API.md)을 따른다. 실제 DB 적용·운영 상태는 확인하지 않았다.
 
 UNCHECKED는 확인 시각·원인 모두 null, AVAILABLE은 시각 필수·원인 null, REVIEW_REQUIRED는 시각 필수·원인 UNAVAILABLE로 DB CHECK한다. 기존·신규 영상은 명시적 확인 기록이 없으면 UNCHECKED다. 메타데이터 성공·수집 시각·extractionWarning에서 정상 여부를 추론하지 않는다. producer·재확인 API·배치는 미구현이며 일시적 실패를 확정 상태로 기록하지 않는다.
 
 Restaurant 집계는 실제 Mention의 distinct Video만 대상으로 한다. 문제 출처가 있으면 true, 문제 없이 미확인 출처가 있거나 출처가 없으면 null, 모두 AVAILABLE이고 출처가 있으면 false다. 출처 상태는 관계 검증·공개·version을 변경하지 않는다. 초안·후보는 검색·집계·실제 관계 상세에 포함하지 않는다. 상세 계약은 [관리자 API](ADMIN_API.md)의 #16 절을 따른다.
 
-## #15 CREATE 초안 승인 — 현재 작업 트리
+## #15 CREATE 초안 승인 — 구현 당시 기록
 
 2026-11-06 사용자가 설계와 별도로 Backend·테스트·문서 구현을 승인했다. HEAD `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`의 미커밋 작업 트리에 #15 승인 경로를 구현했다. [구현 Handoff](ISSUE_15_IMPLEMENTATION_HANDOFF.md)와 [승인 API 계약](ADMIN_API.md)을 따른다. 아래 목표 설명 중 CREATE 승인에 관한 내용은 이 현재 계약이 우선한다.
 
@@ -26,14 +28,14 @@ Restaurant 집계는 실제 Mention의 distinct Video만 대상으로 한다. �
 
 이 문서는 관리자 1단계의 **목표 설계**와 현재 구현 차이를 함께 기록한다. 2026-11-02 V3 로컬 DB 적용·기존 승인 조회 호환 변경의 과거 기록은 [V3 적용 결과](DIRECT_REGISTRATION_MIGRATION.md)에 보존한다. 현재 코드에는 직접 장소 검색·영상 메타데이터 등록·직접 승인 API와 감사·멱등 Entity, #14 CREATE 초안 생성·조회·목록·부분 수정 및 #15 CREATE 승인이 있다. Revision 모델·정정·공개 중단/복구 API·새 UI는 미구현이다. [이전 설계](archive/DOMAIN_MODEL_V2.md)와 [분리 기록](CANDIDATE_MENTION_SEPARATION.md)을 보존한다.
 
-## 현재 구현과 목표 설계의 경계 — #13·#14
+## #13·#14 당시 구현과 목표 설계의 경계 — 과거 기록
 
-현재 인계 기준은 `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`다. 아래 #14 작업 트리·검증 설명은 당시 기록이며 #14는 PR #23으로 병합됐다. 현재 migration 파일은 V1~V3이며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
+당시 기준은 `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`다. 아래 #14 작업 트리·검증 설명은 당시 기록이며 #14는 PR #23으로 병합됐다. 당시 migration 파일은 V1~V3이었다. 현재는 V4가 추가됐으며 실제 대상 DB 적용 버전·데이터 정합성은 이번에 조회하지 않았다.
 
 - `AdminAuditEventEntity`·`AdminRequestReceiptEntity`와 Repository는 직접 승인과 초안 저장에서 사용한다. 초안 수정은 감사만 기록한다. 테이블 준비만 된 상태와 구분하되 이력 조회·다른 관리 작업까지 완성됐다는 뜻은 아니다.
 - #14 작업 트리는 V3 mention_drafts Entity·Repository·Service·API를 추가한다. 식당 ID 또는 장소 토큰으로 CREATE/DRAFT를 저장하고 활성 관리자 공유·생성 멱등성·버전 보호·감사를 지원한다. 신규 migration은 없다. Frontend 타입 검사·테스트·빌드는 이전 검증에서 PASS이며 Backend도 Docker 실행 후 재검증에서 컴파일·테스트 137개 PASS(실패·skip 0, 종료 코드 0)다. RestaurantRevision·ChefRevision은 목표 모델이다.
 - 현재 `RegistrationService.approveDirect`는 초안 없이 관계·감사·영수증을 저장한다. #14 승인에서도 이를 유지하며 초안 승인은 #15 별도 범위다. 아래 ERD·상태 전이의 초안 경유 직접 승인 제안과 구분한다.
-- 현재 Video Entity·DTO에는 아래 설계의 source_check_status·확인 시각이 없다. 출처 재확인·관리자 필터는 후속 저장 모델/API 설계 대상이다(D6).
+- 당시 Video Entity·DTO에는 출처 판정 필드가 없었다. 현재는 V4·VideoEntity·관리자 상세 DTO에 반영됐으며 기존 Models.Video는 호환성을 유지한다. 실제 출처 확인·갱신 producer는 여전히 후속 범위다.
 - 공개 조건·3항목 관계 유일성·동명이인 허용·선택 메모·기존 장소 보존은 현재 코드에 반영됐다. #14 저장은 Mention을 만들지 않으며 중복 CREATE 초안은 허용한다. #15만 관계 생성·APPLIED 연결을 수행하며 완료 초안은 수정하지 않는다. CORRECTION은 조회·수정·승인 대상이 아니다. 정정·복구까지 검증됐다고 확장하지 않는다.
 
 이하 ERD·제약·트랜잭션 절은 미구현 부분을 포함하는 목표다. 현재 계약과 차이·소비자 영향은 [API 현재 코드 계약](ADMIN_API.md)을 먼저 확인한다. #14 승인 범위를 넘어 목표 설계 전체의 코드·SQL 변경이나 신규 migration이 승인된 것은 아니다.
