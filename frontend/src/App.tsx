@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from './api';
-import type { Candidate, CandidateDisposition, Chef, Mention, Restaurant, Session, Video } from './types';
+import type { Restaurant, Session } from './types';
 import KakaoMap from './KakaoMap';
-import CandidateReviewCard from './features/admin/CandidateReviewCard';
-import RegistrationForm from './features/admin/registration/RegistrationForm';
+import AdminWorkspace from './features/admin/AdminWorkspace';
+import type { LeaveGuard } from './features/admin/AdminWorkspace';
 import { draftUrl } from './features/admin/registration/useRegistration';
 const mentionLabels = { REGULAR: '단골', RECOMMENDED: '추천', VISITED: '방문', MENTIONED: '단순 언급' };
 
@@ -16,45 +16,48 @@ function PlaceCard({ restaurant, selected, onSelect }: { restaurant: Restaurant;
   </article>;
 }
 
-type LeaveGuard = (proceed: () => void) => void;
 function Admin({ onPublished, onGuard }: { onPublished: () => Promise<void>; onGuard: (guard: LeaveGuard | null) => void }) {
-  const [showRegistration, setShowRegistration] = useState(() => new URLSearchParams(window.location.search).has('draftId'));
-  const leaveGuard = useRef<LeaveGuard | null>(null);
-  const registerGuard = useCallback((guard: LeaveGuard | null) => { leaveGuard.current = guard; onGuard(guard); }, [onGuard]);
   const [session, setSession] = useState<Session | null>(null);
-  const [videos, setVideos] = useState<Video[]>([]);
-  const [mentions, setMentions] = useState<Mention[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [chefs, setChefs] = useState<Chef[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [filter, setFilter] = useState<CandidateDisposition>('OPEN');
-  async function refresh() {
-    const [v, m, c, extracted] = await Promise.all([api<Video[]>('/admin/videos'), api<Mention[]>('/admin/mentions'), api<Chef[]>('/admin/chefs'), api<Candidate[]>('/admin/candidates')]);
-    setVideos(v); setMentions(m); setChefs(c); setCandidates(extracted); await onPublished();
+  const [authGeneration, setAuthGeneration] = useState(0);
+  const [workspaceKey, setWorkspaceKey] = useState(0);
+  const sessionRequest = useRef(0);
+  const identity = useRef<string | undefined>(undefined);
+  const leaveGuard = useRef<LeaveGuard | null>(null);
+  const registerGuard = useCallback((guard: LeaveGuard | null) => { leaveGuard.current = guard; onGuard(guard); }, [onGuard]);
+  const expire = useCallback(() => { sessionRequest.current++; setSession({ authenticated: false }); setAuthGeneration(n=>n+1); setError('관리자 로그인이 만료됐습니다. 작성 입력은 유지됩니다. 다시 로그인하세요.'); }, []);
+  function acceptSession(next: Session) {
+    if (next.authenticated && next.username) {
+      if (identity.current && identity.current !== next.username) { setWorkspaceKey(n=>n+1); draftUrl(null); }
+      identity.current=next.username;
+    }
+    setSession(next); setAuthGeneration(n=>n+1);
   }
-  useEffect(() => { api<Session>('/session').then(async s => { setSession(s); if (s.authenticated) await refresh(); }).catch(error => setError(errorMessage(error))); }, []);
-  async function run(fn: () => Promise<void>) { setBusy(true); setError(''); setMessage(''); try { await fn(); } catch (error) { setError(errorMessage(error)); } finally { setBusy(false); } }
-  const loginPanel = <section className="login-panel"><span className="eyebrow">CURATOR DESK</span><h2>관리자 로그인</h2><p>영상의 근거를 확인하고, 다음 단골집을 지도에 더합니다.</p>{error && <p role="alert" className="error">{error}</p>}<form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); run(async () => { await api('/login', { method: 'POST', form: true, body: Object.fromEntries(form) }); setSession(await api<Session>('/session')); await refresh(); }); }}><label>아이디<input name="username" autoComplete="username" required/></label><label>비밀번호<input name="password" type="password" autoComplete="current-password" required/></label><button disabled={busy}>로그인</button></form></section>;
-  return <>{!session?.authenticated && loginPanel}<section className="admin" hidden={!session?.authenticated}><div className="section-heading"><div><span className="eyebrow">CURATOR DESK</span><h2>영상에서 지도까지</h2></div><button className="secondary" onClick={() => { const proceed = () => { void run(async () => { await api('/logout', { method: 'POST' }); setSession({ authenticated: false }); setShowRegistration(false); draftUrl(null); }); }; if (leaveGuard.current) leaveGuard.current(proceed); else proceed(); }}>로그아웃</button></div>
-    {!showRegistration && <button onClick={() => setShowRegistration(true)}>식당 직접 등록 · 초안 이어쓰기</button>}
-    {showRegistration && <RegistrationForm username={session?.authenticated ? session.username : undefined} onExpired={() => setSession({ authenticated: false })} onPublished={refresh} onClose={() => setShowRegistration(false)} onGuard={registerGuard}/>}
-    <div hidden={showRegistration}>
-    {error && <p role="alert" className="error">{error}</p>}{message && <p role="status" className="notice">{message}</p>}
-    <div className="admin-tools"><form onSubmit={event => { event.preventDefault(); const url = new FormData(event.currentTarget).get('url'); run(async () => { await api('/admin/videos', { method: 'POST', body: { url } }); await refresh(); setMessage('설명란을 가져왔습니다. 추출 후보와 누락된 식당을 확인하세요.'); }); }}><label>YouTube 영상 URL<input name="url" type="url" required placeholder="https://www.youtube.com/watch?v=…"/></label><button disabled={busy}>설명란 가져오기</button></form>
-    <form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const name = new FormData(form).get('name'); run(async () => { await api('/admin/chefs', { method: 'POST', body: { name } }); await refresh(); form.reset(); }); }}><label>셰프 등록<input name="name" maxLength={100} required placeholder="직접 확인한 셰프 이름"/></label><button disabled={busy} className="secondary">등록</button></form></div>
-    <div className="workflow"><span>01 설명란 확인</span><span>02 장소·셰프 대조</span><span>03 승인 후 공개</span></div>
-    <details className="video-evidence"><summary>원문 확인 및 누락 후보 수동 추가 · 영상 {videos.length}개</summary>{videos.map(video => <article key={video.id}><h3>{video.title}</h3><p className="notice">{video.extractionWarning}</p><pre>{video.description || '(빈 설명란)'}</pre><form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); run(async () => { await api(`/admin/videos/${video.id}/candidates`, { method: 'POST', body: values }); await refresh(); form.reset(); }); }}><label>누락 상호<input required name="name" maxLength={100}/></label><label>주소 (없으면 비워두기)<input name="address" maxLength={300}/></label><label>설명란 원문 근거<textarea required name="evidence" maxLength={5000}/></label><button disabled={busy}>검토 후보 추가</button></form></article>)}</details>
-    <div className="section-heading"><h3>추출 후보</h3><label className="compact">상태<select value={filter} onChange={event => setFilter(event.target.value as CandidateDisposition)}><option value="OPEN">검토 대기</option><option value="RESOLVED">관계 승인됨</option><option value="DISMISSED">후보 제외</option></select></label></div>
-    <div className="review-grid">{candidates.filter(candidate => candidate.disposition === filter).map(candidate => <CandidateReviewCard key={candidate.id} candidate={candidate} chefs={chefs} refresh={refresh} setError={setError}/>)}</div>
-    {!candidates.some(candidate => candidate.disposition === filter) && <p className="empty">해당 상태의 후보가 없습니다. 설명란 원문에서 누락된 식당을 확인할 수 있습니다.</p>}
-    <div className="section-heading"><h3>셰프–식당 관계 · {mentions.length}개</h3></div>
-    {!mentions.length && <p className="empty">승인된 관계가 없습니다. 추출 후보는 관계 승인 전까지 공개되지 않습니다.</p>}
-    {mentions.map(mention => <article className="review-card" key={mention.id}><h3>{mention.chefName} · {mention.restaurantName}</h3><p>{mention.mentionType == null ? "" : mentionLabels[mention.mentionType]} · {mention.verificationStatus} · {mention.timestampSeconds == null ? '시점 미확인' : `${mention.timestampSeconds}초`}</p><a href={`https://www.youtube.com/watch?v=${mention.videoId}`} target="_blank" rel="noreferrer">{mention.videoTitle} ↗</a><details><summary>관계 검증 근거</summary><pre>{mention.evidence}</pre><p>{mention.reviewNote}</p><p>검토자: {mention.reviewedBy}</p></details></article>)}
-    </div></section></>;
+  useEffect(() => { let active=true; const request=++sessionRequest.current; void api<Session>('/session').then(s=>{if(active&&request===sessionRequest.current)acceptSession(s);}).catch(e=>{if(active&&request===sessionRequest.current)setError(errorMessage(e));}); return ()=>{active=false;sessionRequest.current++;}; }, []);
+  async function login(form: FormData) {
+    if (busy) return;
+    setBusy(true);setError('');const request=++sessionRequest.current;
+    try {await api('/login',{method:'POST',form:true,body:Object.fromEntries(form)});const next=await api<Session>('/session');if(request===sessionRequest.current)acceptSession(next);}
+    catch(e){if(request===sessionRequest.current)setError(errorMessage(e));}finally{setBusy(false);}
+  }
+  function logout() {
+    const proceed=()=>{void (async()=>{const request=++sessionRequest.current;setBusy(true);try{await api('/logout',{method:'POST'});if(request!==sessionRequest.current)return;setSession({authenticated:false});setAuthGeneration(n=>n+1);setWorkspaceKey(n=>n+1);draftUrl(null);}catch(e){if(request===sessionRequest.current)setError(errorMessage(e));}finally{setBusy(false);}})();};
+    if(leaveGuard.current)leaveGuard.current(proceed);else proceed();
+  }
+  return <>
+    {!session?.authenticated && <section className="login-panel"><span className="eyebrow">CURATOR DESK</span><h2>관리자 로그인</h2><p>식당과 영상의 근거를 확인합니다.</p>
+      {error && <p role="alert" className="error">{error}</p>}<form onSubmit={event=>{event.preventDefault();void login(new FormData(event.currentTarget));}}>
+        <label>아이디<input name="username" autoComplete="username" required/></label><label>비밀번호<input name="password" type="password" autoComplete="current-password" required/></label><button disabled={busy}>로그인</button>
+      </form></section>}
+    <section className="admin" hidden={!session?.authenticated}>
+      <div className="section-heading"><span className="eyebrow">CURATOR DESK</span><button className="secondary" disabled={busy} onClick={logout}>로그아웃</button></div>
+      {session?.authenticated && error && <p role="alert" className="error">{error}</p>}
+      <AdminWorkspace key={workspaceKey} username={session?.authenticated ? session.username : undefined} authGeneration={authGeneration}
+        onExpired={expire} onPublished={onPublished} onGuard={registerGuard}/>
+    </section>
+  </>;
 }
-
 export default function App() {
   const [page, setPage] = useState(() => new URLSearchParams(window.location.search).has('draftId') ? 'admin' : 'map');
   const leaveGuard = useRef<LeaveGuard | null>(null);

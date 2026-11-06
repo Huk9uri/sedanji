@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError, errorMessage } from '../../../api';
 import { registrationApi as api } from './registrationApi';
 import { changedValues, emptyFields, timestampText, values } from './registrationInput';
-import type { Chef, Draft, Fields, Selection, Values } from './types';
+import type { Chef, Draft, Fields, Selection, Values, RegistrationEntry, RegistrationCommitted } from './types';
+import { restaurantApi } from '../restaurants/restaurantApi';
+import type { RestaurantPlace } from '../restaurants/types';
 
 type Operation = { kind: 'create' | 'direct' | 'approve' | 'patch' | 'chef'; owner: string; execute: (active: () => boolean) => Promise<void> };
 export function draftUrl(id: number | null) {
@@ -11,7 +13,8 @@ export function draftUrl(id: number | null) {
   if (id !== null) url.searchParams.set('draftId', String(id));
   window.history.replaceState(null, '', url);
 }
-export function useRegistration(username: string | undefined, onExpired: () => void, onPublished: () => Promise<void>) {
+export function useRegistration(username: string | undefined, onExpired: () => void, onPublished: () => Promise<void>,
+  entry: RegistrationEntry = { kind: 'new' }, onCommitted?: (event: RegistrationCommitted) => Promise<void>) {
   const [fields, setFields] = useState<Fields>(emptyFields);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -24,6 +27,9 @@ export function useRegistration(username: string | undefined, onExpired: () => v
   const [pending, setPending] = useState<Operation | null>(null);
   const [latest, setLatest] = useState<Draft | null>(null);
   const [applied, setApplied] = useState<number | null>(null);
+  const [fixedRestaurant, setFixedRestaurant] = useState<RestaurantPlace | null>(null);
+  const [committed, setCommitted] = useState<RegistrationCommitted | null>(null);
+  const [entryRetry, setEntryRetry] = useState(0);
   const owner = useRef(username);
   const lock = useRef(false);
   const generation = useRef(0);
@@ -41,6 +47,7 @@ export function useRegistration(username: string | undefined, onExpired: () => v
   function reset() {
     generation.current++; reads.current++; setFields(emptyFields()); setSelection(null); setDraft(null);
     setBaseline(null); setBaselineFields(''); setLatest(null); setApplied(null); setPending(null); setError(''); setNotice(''); draftUrl(null);
+    setFixedRestaurant(null); setCommitted(null);
   }
   useEffect(() => {
     if (!username) { setSelection(null); return; }
@@ -59,6 +66,16 @@ export function useRegistration(username: string | undefined, onExpired: () => v
     return () => window.removeEventListener('beforeunload', before);
   }, [dirty, unresolved]);
   useEffect(() => () => { generation.current++; reads.current++; }, []);
+  useEffect(() => {
+    if (!username || entry.kind !== 'addRelation') return;
+    const controller = new AbortController(), gen = generation.current;
+    setBusy(true); setError('');
+    void restaurantApi.detail(entry.restaurantId, 0, 20, controller.signal).then(result => {
+      if (!controller.signal.aborted && gen === generation.current) setFixedRestaurant(result.restaurant);
+    }).catch(e => { if (!controller.signal.aborted && gen === generation.current) failure(e); })
+      .finally(() => { if (!controller.signal.aborted && gen === generation.current) setBusy(false); });
+    return () => controller.abort();
+  }, [username, entry.kind === 'addRelation' ? entry.restaurantId : null, entryRetry]);
   function failure(e: unknown) {
     let message = errorMessage(e);
     if (e instanceof ApiError) {
@@ -80,6 +97,8 @@ export function useRegistration(username: string | undefined, onExpired: () => v
   }
   async function acceptDraft(result: Draft, resolvedVideo?: Fields['video']) {
     const gen = generation.current;
+    if (entry.kind === 'addRelation' && result.restaurant.id !== entry.restaurantId)
+      throw new Error('선택 식당과 초안의 식당이 다릅니다. 입력을 확인하고 식당 상세에서 다시 시작하세요.');
     const video = resolvedVideo === undefined ? result.videoId ? (await api.videos()).find(v => v.id === result.videoId) ?? null : null : resolvedVideo;
     if (gen !== generation.current) return;
     if (result.videoId && !video) throw new Error('저장된 영상 표시 정보를 찾을 수 없습니다. 초안 ID로 다시 조회하세요.');
@@ -105,13 +124,18 @@ export function useRegistration(username: string | undefined, onExpired: () => v
     queueMicrotask(() => {
       if (!current) return;
       initialResume.current = true;
-      const id = new URL(window.location.href).searchParams.get('draftId');
+      const id = entry.kind === 'resumeDraft' ? String(entry.draftId) : entry.kind === 'new' ? new URL(window.location.href).searchParams.get('draftId') : null;
       if (id && /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id))) void openDraft(Number(id), true);
     });
     return () => { current = false; };
   }, [username]);
   async function refreshPublished() {
     try { await onPublished(); } catch { setNotice(n => n + ' 공개 목록 갱신은 실패했습니다. 승인 요청을 다시 보내지 말고 목록만 새로고침하세요.'); }
+  }
+  async function notifyCommitted(event: RegistrationCommitted) {
+    setCommitted(event);
+    try { await onCommitted?.(event); }
+    catch { setNotice(n => n + ' 저장·승인은 완료됐지만 관련 조회 갱신에 실패했습니다. 상세에서 조회만 다시 시도하세요.'); }
   }
   async function execute(operation: Operation) {
     if (lock.current || !username || operation.owner !== username) return;
@@ -146,12 +170,15 @@ export function useRegistration(username: string | undefined, onExpired: () => v
         const body = { ...changes, ...(selection ? { placeSelectionToken: selection.placeSelectionToken } : {}), expectedVersion: draft.version };
         if (Object.keys(body).length === 1) { setNotice('저장할 변경 사항이 없습니다. 미확정 검색어·URL은 저장 대상이 아닙니다.'); return; }
         const id = draft.id;
-        start('patch', async active => { const result = await api.patch(id, body); if (!active()) return; await acceptDraft(result, currentVideo); setNotice('초안을 수정 저장했습니다.'); preserveUnsaved(); });
+        const previousRestaurantId = draft.restaurant.id;
+        start('patch', async active => { const result = await api.patch(id, body); if (!active()) return; await acceptDraft(result, currentVideo); setNotice('초안을 수정 저장했습니다.'); preserveUnsaved();
+          await notifyCommitted({ kind: 'draftUpdated', restaurantId: result.restaurant.id, previousRestaurantId, draftId: result.id }); });
       } else {
-        if (!selection) throw new Error('식당 장소를 먼저 선택하세요.');
-        const body = { ...next, placeSelectionToken: selection.placeSelectionToken }; const key = crypto.randomUUID();
+        if (!selection && !fixedRestaurant) throw new Error('식당 장소를 먼저 선택하세요.');
+        const body = fixedRestaurant ? { ...next, restaurantId: fixedRestaurant.id } : { ...next, placeSelectionToken: selection!.placeSelectionToken }; const key = crypto.randomUUID();
         start('create', async active => {
           const result = await api.createDraft(body, key); if (!active()) return; await acceptDraft(result, currentVideo); setNotice('초안을 저장했습니다.'); preserveUnsaved();
+          await notifyCommitted({ kind: 'draftCreated', restaurantId: result.restaurant.id, draftId: result.id });
         });
       }
     } catch(e) { failure(e); }
@@ -162,17 +189,20 @@ export function useRegistration(username: string | undefined, onExpired: () => v
       const next = values(fields);
       if (!next.chefId || !next.videoId || !next.mentionType) throw new Error('승인에는 셰프·확정 영상·언급 유형이 필요합니다.');
       if (draft && dirty) throw new Error('변경 내용을 먼저 수정 저장한 뒤 승인하세요.');
+      if (!draft && entry.kind === 'addRelation') throw new Error('기존 식당의 관계 추가는 먼저 초안을 저장한 뒤 승인하세요.');
       const key = crypto.randomUUID();
       if (draft) {
         const id = draft.id, version = draft.version;
         start('approve', async active => { const result = await api.approve(id, version, key); if (!active()) return; setApplied(result.mentionId);
           setDraft(d => d ? { ...d, status: 'APPLIED', version: result.draftVersion, appliedMentionId: result.mentionId } : d);
-          setNotice(`초안 승인 완료 · 관계 ID ${result.mentionId}`); await refreshPublished(); });
+          setNotice(`초안 승인 완료 · 관계 ID ${result.mentionId}`);
+          await notifyCommitted({ kind: 'draftApproved', restaurantId: result.restaurantId, draftId: result.draftId, mentionId: result.mentionId }); await refreshPublished(); });
       } else {
         if (!selection) throw new Error('장소를 다시 선택하세요.');
         const body = { ...next, placeSelectionToken: selection.placeSelectionToken };
         start('direct', async active => { const result = await api.direct(body, key); if (!active()) return; setApplied(result.mentionId);
-          setNotice(`직접 승인 완료 · 관계 ID ${result.mentionId}`); await refreshPublished(); });
+          setNotice(`직접 승인 완료 · 관계 ID ${result.mentionId}`);
+          await notifyCommitted({ kind: 'directApproved', restaurantId: result.restaurantId, mentionId: result.mentionId }); await refreshPublished(); });
       }
     } catch(e) { failure(e); }
   }
@@ -207,7 +237,8 @@ export function useRegistration(username: string | undefined, onExpired: () => v
       setFields(f => ({ ...f, chefId: chef.id, chefSearch: '' })); setNotice('셰프를 등록하고 선택했습니다. 양식 취소 시 셰프는 삭제되지 않습니다.'); });
   }
   async function refreshChefs() { const gen=generation.current; try { const result=await api.chefs(); if(gen!==generation.current) return; setChefs(result); setNotice('셰프 목록을 다시 조회했습니다. 생성 여부를 직접 확인하고 선택하세요.'); } catch(e) { if(gen===generation.current) failure(e); } }
-  return { fields, setFields, selection, setSelection, draft, chefs, error, notice, busy, pending, latest, applied, dirty, readonly,
+  return { fields, setFields, selection, setSelection, draft, chefs, error, notice, busy, pending, latest, applied, dirty, readonly, fixedRestaurant, committed,
+    retryEntry: () => setEntryRetry(n => n + 1),
     canLeave, reset, save, approve, openDraft, loadLatest, useLatest, createChef, refreshChefs, failure,
     retry: () => pending && !['patch','chef'].includes(pending.kind) ? execute(pending) : undefined,
     finishChefCheck: () => { if (pending?.kind === 'chef') { setPending(null); setError(''); } },

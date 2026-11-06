@@ -10,9 +10,10 @@ interface Props {
   chefs: Chef[];
   refresh: () => Promise<void>;
   setError: (message: string) => void;
+  onFailure?: (error: unknown) => void;
 }
 
-export default function CandidateReviewCard({ candidate, chefs, refresh, setError }: Props) {
+export default function CandidateReviewCard({ candidate, chefs, refresh, setError, onFailure }: Props) {
   const [search, setSearch] = useState<CandidateSearch | null>(null);
   const [query, setQuery] = useState(candidate.extractedName);
   const [placeId, setPlaceId] = useState('');
@@ -24,14 +25,15 @@ export default function CandidateReviewCard({ candidate, chefs, refresh, setErro
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
-    api<CandidateSearch>(`/admin/candidates/${candidate.id}/places`).then(result => { if (active) setSearch(result); }).catch(error => { if (active) setError(errorMessage(error)); });
+    api<CandidateSearch>(`/admin/candidates/${candidate.id}/places`).then(result => { if (active) setSearch(result); }).catch(error => { if (active) { setError(errorMessage(error)); onFailure?.(error); } });
     return () => { active = false; };
   }, [candidate.id]);
   async function action(fn: () => Promise<void>) {
     setBusy(true); setError('');
     try { await fn(); } catch (error) {
       setError(errorMessage(error));
-      try { await refresh(); } catch { /* Keep the original operation error visible. */ }
+      onFailure?.(error);
+      try { await refresh(); } catch (refreshError) { onFailure?.(refreshError); /* Keep the original operation error visible. */ }
     } finally { setBusy(false); }
   }
   const canApprove = Boolean(placeId && chefId && mentionType && evidence.trim() && note.trim()

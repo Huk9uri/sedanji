@@ -169,3 +169,24 @@ it('does not allow mutation of a resumed applied draft',async()=>{
   expect(await screen.findByText(/읽기 전용입니다/)).toBeInTheDocument();expect(screen.getByLabelText('검증 메모 (선택)')).toBeDisabled();
   expect(screen.queryByRole('button',{name:'수정 저장'})).not.toBeInTheDocument();expect(api.approve).not.toHaveBeenCalled();expect(api.direct).not.toHaveBeenCalled();
 });
+it('stores the committed result ID before notifying and keeps success when related reads fail',async()=>{
+  vi.mocked(api.direct).mockResolvedValue({mentionId:19,restaurantId:20,version:0,verificationStatus:'APPROVED',publicationStatus:'PUBLISHED'});
+  const committed=vi.fn(async()=>{throw new Error('GET failed');}),onDetail=vi.fn(),onClose=vi.fn();
+  render(<RegistrationForm username="admin" onExpired={vi.fn()} onPublished={published} onClose={onClose} onGuard={vi.fn()} onCommitted={committed} onDetail={onDetail}/>);
+  await complete();fireEvent.click(screen.getByRole('button',{name:'승인 전 검토'}));fireEvent.click(screen.getByRole('button',{name:'직접 승인·공개'}));
+  await waitFor(()=>expect(committed).toHaveBeenCalledWith({kind:'directApproved',restaurantId:20,mentionId:19}));
+  expect(await screen.findByText(/관련 조회 갱신에 실패/)).toHaveTextContent('직접 승인 완료');
+  expect(screen.queryByRole('button',{name:'동일 키·동일 요청으로 결과 재확인'})).not.toBeInTheDocument();expect(onClose).not.toHaveBeenCalled();
+  const button=await screen.findByRole('button',{name:'저장한 식당 상세로 이동'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
+  expect(onDetail).toHaveBeenCalledWith(20);expect(api.direct).toHaveBeenCalledTimes(1);
+});
+it('includes previous and new restaurant IDs when a resumed draft changes its place',async()=>{
+  window.history.replaceState(null,'','/?draftId=4');vi.mocked(api.draft).mockResolvedValue(draft);
+  vi.mocked(api.patch).mockResolvedValue({...draft,version:3,restaurant:{...draft.restaurant,id:20,kakaoPlaceId:'456',name:'새 장소',placeUrl:'https://place.map.kakao.com/456'},verificationNote:'수정'});
+  vi.mocked(api.places).mockResolvedValue({candidates:[{placeSelectionToken:'new-token',place:{...place,id:'456',name:'새 장소',placeUrl:'https://place.map.kakao.com/456'}}],totalCount:1,complete:true});
+  const committed=vi.fn(async()=>{});
+  render(<RegistrationForm username="admin" onExpired={vi.fn()} onPublished={published} onClose={vi.fn()} onGuard={vi.fn()} onCommitted={committed}/>);
+  await readyDraft();fireEvent.click(screen.getByRole('button',{name:'장소 다시 선택'}));await choose();fireEvent.change(screen.getByLabelText('검증 메모 (선택)'),{target:{value:'수정'}});
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(committed).toHaveBeenCalledWith({kind:'draftUpdated',restaurantId:20,previousRestaurantId:10,draftId:4}));
+  expect(api.patch).toHaveBeenCalledWith(4,{expectedVersion:2,placeSelectionToken:'new-token',verificationNote:'수정'});
+});
