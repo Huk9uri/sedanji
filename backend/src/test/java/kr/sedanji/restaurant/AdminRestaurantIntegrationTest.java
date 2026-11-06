@@ -171,6 +171,101 @@ class AdminRestaurantIntegrationTest {
         assertThat(item.at("/chefs/0/id").asLong()).isEqualTo(chefs[0]);
         assertThat(item.at("/chefs/2/id").asLong()).isEqualTo(chefs[3]);
     }
+    @Test void mixedSourceStatesUseDistinctVideosAndKeepReviewRequiredPriority() throws Exception {
+        mention(0,2,2,"PENDING","SUSPENDED",null);
+        mention(0,3,2,"REJECTED","SUSPENDED",null);
+        var item=list("?query=한빛국수").at("/items/0");
+        assertThat(item.get("relationCount").asInt()).isEqualTo(4);
+        assertThat(item.get("sourceCount").asInt()).isEqualTo(3);
+        assertThat(item.get("uncheckedSourceCount").asInt()).isEqualTo(1);
+        assertThat(item.get("reviewRequiredSourceCount").asInt()).isEqualTo(1);
+        assertThat(item.get("needsSourceReview").asBoolean()).isTrue();
+        assertThat(ids(list("?query=한빛국수&needsSourceReview=true"))).containsExactly(restaurants[0]);
+    }
+    @Test void rejectedOnlyRestaurantIsSearchableButNotPublicAndRepeatedChefMatchesDoNotDuplicateIt() throws Exception {
+        // Use the previously unrelated restaurant so no approved relation can mask the filter result.
+        mention(3,3,3,"REJECTED","SUSPENDED",null);
+        mention(3,3,4,"REJECTED","SUSPENDED",null);
+        var page=getJsonWithQuery("동명");
+        assertThat(ids(page)).containsExactly(restaurants[4],restaurants[3]);
+        assertThat(page.get("totalElements").asInt()).isEqualTo(2);
+        var rejectedOnly=list("?query=빈장소&publication=NO_PUBLIC_RELATION");
+        assertThat(ids(rejectedOnly)).containsExactly(restaurants[3]);
+        assertThat(rejectedOnly.at("/items/0/relationCount").asInt()).isEqualTo(2);
+        assertThat(rejectedOnly.at("/items/0/publicRelationCount").asInt()).isZero();
+        assertThat(ids(list("?query=빈장소&publication=PUBLISHED"))).isEmpty();
+    }
+    @Test void detailFieldsRemainAttachedToTheirMentionIdsWithoutExternalCalls() throws Exception {
+        var checkedAt=java.time.OffsetDateTime.parse("2026-02-01T12:00:00Z");
+        var reviewedAt=java.time.OffsetDateTime.parse("2026-02-02T12:00:00Z");
+        db.update("update videos set title='영상 A',channel_title='채널 A',source_checked_at=? where id=?",checkedAt,videos[0]);
+        db.update("update videos set title='영상 B',channel_title='채널 B',source_checked_at=? where id=?",checkedAt.plusDays(1),videos[1]);
+        db.update("update mentions set mention_type='REGULAR',version=7,review_note='메모 A',reviewed_at=? where restaurant_id=? and chef_id=?",
+            reviewedAt,restaurants[0],chefs[0]);
+        db.update("update mentions set mention_type='MENTIONED',version=9,review_note='메모 B',reviewed_at=? where restaurant_id=? and chef_id=?",
+            reviewedAt.plusDays(1),restaurants[0],chefs[1]);
+        long first=db.queryForObject("select id from mentions where restaurant_id=? and chef_id=?",Long.class,restaurants[0],chefs[0]);
+        long second=db.queryForObject("select id from mentions where restaurant_id=? and chef_id=?",Long.class,restaurants[0],chefs[1]);
+        clearInvocations(apis);
+        assertThat(ids(getJsonWithQuery("LEE"))).containsExactly(restaurants[0]);
+        var items=getJson("/api/admin/restaurants/"+restaurants[0]).at("/mentions/items");
+        assertThat(items.size()).isEqualTo(2);
+        for(int i=0;i<2;i++) {
+            boolean newer=i==0;
+            var row=items.get(i);
+            assertThat(row.get("id").asLong()).isEqualTo(newer ? second : first);
+            assertThat(row.get("version").asLong()).isEqualTo(newer ? 9 : 7);
+            assertThat(row.at("/chef/id").asLong()).isEqualTo(chefs[newer ? 1 : 0]);
+            assertThat(row.at("/video/id").asText()).isEqualTo(videos[newer ? 1 : 0]);
+            assertThat(row.at("/video/title").asText()).isEqualTo(newer ? "영상 B" : "영상 A");
+            assertThat(row.at("/video/channelTitle").asText()).isEqualTo(newer ? "채널 B" : "채널 A");
+            assertThat(row.get("mentionType").asText()).isEqualTo(newer ? "MENTIONED" : "REGULAR");
+            assertThat(row.get("verificationStatus").asText()).isEqualTo("APPROVED");
+            assertThat(row.get("publicationStatus").asText()).isEqualTo(newer ? "SUSPENDED" : "PUBLISHED");
+            assertThat(row.get("verificationNote").asText()).isEqualTo(newer ? "메모 B" : "메모 A");
+            assertThat(row.at("/video/sourceCheckStatus").asText()).isEqualTo(newer ? "REVIEW_REQUIRED" : "AVAILABLE");
+            assertThat(java.time.OffsetDateTime.parse(row.at("/video/sourceCheckedAt").asText()).toInstant())
+                .isEqualTo((newer ? checkedAt.plusDays(1) : checkedAt).toInstant());
+            assertThat(java.time.OffsetDateTime.parse(row.get("reviewedAt").asText()).toInstant())
+                .isEqualTo((newer ? reviewedAt.plusDays(1) : reviewedAt).toInstant());
+            if(newer) {
+                assertThat(row.get("timestampSeconds").isNull()).isTrue();
+                assertThat(row.at("/video/sourceCheckReason").asText()).isEqualTo("UNAVAILABLE");
+            } else {
+                assertThat(row.get("timestampSeconds").isIntegralNumber()).isTrue();
+                assertThat(row.get("timestampSeconds").asInt()).isZero();
+                assertThat(row.at("/video/sourceCheckReason").isNull()).isTrue();
+            }
+        }
+        verifyNoInteractions(apis);
+    }
+    @Test void outOfRangePagesPreserveTotalsAndHaveNoNextPage() throws Exception {
+        var page=list("?page=99");
+        assertThat(ids(page)).isEmpty();
+        assertThat(page.get("totalElements").asInt()).isEqualTo(5);
+        assertThat(page.get("hasNext").asBoolean()).isFalse();
+        var mentions=getJson("/api/admin/restaurants/"+restaurants[0]+"?mentionPage=99").get("mentions");
+        assertThat(mentions.get("items").size()).isZero();
+        assertThat(mentions.get("totalElements").asInt()).isEqualTo(2);
+        assertThat(mentions.get("hasNext").asBoolean()).isFalse();
+    }
+    @Test void queryLimitCountsUnicodeCodePointsRatherThanUtf16Units() throws Exception {
+        String hundred="\uD83C\uDF5C".repeat(100);
+        db.update("update restaurants set name=? where id=?",hundred,restaurants[3]);
+        assertThat(hundred.length()).isEqualTo(200);
+        assertThat(ids(getJsonWithQuery(hundred))).containsExactly(restaurants[3]);
+        mvc.perform(get("/api/admin/restaurants").param("query",hundred+"\uD83C\uDF5C"))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_QUERY"));
+    }
+    @Test void detailRequiresAuthenticationRoleAndActiveAdministrator() throws Exception {
+        String path="/api/admin/restaurants/"+restaurants[0];
+        mvc.perform(get(path).with(anonymous())).andExpect(status().isUnauthorized()).andExpect(content().string(""));
+        mvc.perform(get(path).with(user("normal").roles("USER"))).andExpect(status().isForbidden()).andExpect(content().string(""));
+        db.update("update admin_users set enabled=false where id=?",admin);
+        try {
+            mvc.perform(get(path)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ADMIN_INACTIVE"));
+        } finally { db.update("update admin_users set enabled=true where id=?",admin); }
+    }
     @Test void strictQuerySecurityAndErrors() throws Exception {
         for(String query : List.of("page=-1","size=0","size=101","page=x","page=2147483648","page=2147483647&size=100",
             "publication=BAD","needsSourceReview=1","sort=id","page=0&page=1","query="+"a".repeat(101)))
