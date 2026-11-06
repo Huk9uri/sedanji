@@ -60,4 +60,13 @@ public class MentionEntity {
     }
     public Long getId() { return id; }
     public long getVersion() { return version; }
+    public void correct(ChefEntity nextChef, RestaurantEntity nextRestaurant, VideoEntity nextVideo,
+                        MentionType type, Integer timestamp, String note, AdminUserEntity actor) {
+        if (!"APPROVED".equals(verificationStatus) || nextChef == null || nextRestaurant == null || nextVideo == null
+            || type == null || actor == null || !actor.isEnabled() || (timestamp != null && timestamp < 0)
+            || (note != null && note.length() > 2000)) throw new IllegalArgumentException("정정 내용을 확인하세요.");
+        chef=nextChef; restaurant=nextRestaurant; video=nextVideo; mentionType=type;
+        timestampSeconds=timestamp; reviewNote=note; reviewer=actor; reviewedAt=OffsetDateTime.now();
+        // candidate, evidence, verification and publication states are deliberately preserved.
+    }
 }

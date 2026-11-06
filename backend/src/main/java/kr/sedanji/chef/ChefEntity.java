@@ -15,4 +15,8 @@ public class ChefEntity {
     public ChefEntity(String name) { this.name = name; }
     public Long getId() { return id; }
     public String getName() { return name; }
+    public void correctName(String value) {
+        if (value == null || value.isBlank() || value.length() > 100) throw new IllegalArgumentException("셰프 이름을 확인하세요.");
+        name = value.strip();
+    }
 }
