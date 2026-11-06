@@ -2,6 +2,14 @@
 
 갱신일: 2026-11-06. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
+## #16 출처 판정 저장·관리자 조회 — 현재 작업 트리
+
+기준 HEAD `852ca9b227fdf9502368a47391f33b76a8c1f8c3`에 V4와 관리자 목록·상세 조회를 추가했다. ERD의 관계는 유지하고 Video에 source_check_reason을 포함한 판정 필드 3개만 추가한다. 아래 과거 V1~V3·출처 필드 부재 설명보다 이 절의 작업 트리 계약이 우선한다. 2026-11-06 권한 확장 재검증에서 Backend 컴파일·178개 테스트(실패·skip 0), Frontend 타입 검사·11개 테스트·빌드는 PASS다. 최초 실행 제한·테스트 컴파일 오류와 수정 후 재검증은 [API 검증 기록](ADMIN_API.md)에 구분했다. 실제 DB 적용·운영 상태는 확인하지 않았다.
+
+UNCHECKED는 확인 시각·원인 모두 null, AVAILABLE은 시각 필수·원인 null, REVIEW_REQUIRED는 시각 필수·원인 UNAVAILABLE로 DB CHECK한다. 기존·신규 영상은 명시적 확인 기록이 없으면 UNCHECKED다. 메타데이터 성공·수집 시각·extractionWarning에서 정상 여부를 추론하지 않는다. producer·재확인 API·배치는 미구현이며 일시적 실패를 확정 상태로 기록하지 않는다.
+
+Restaurant 집계는 실제 Mention의 distinct Video만 대상으로 한다. 문제 출처가 있으면 true, 문제 없이 미확인 출처가 있거나 출처가 없으면 null, 모두 AVAILABLE이고 출처가 있으면 false다. 출처 상태는 관계 검증·공개·version을 변경하지 않는다. 초안·후보는 검색·집계·실제 관계 상세에 포함하지 않는다. 상세 계약은 [관리자 API](ADMIN_API.md)의 #16 절을 따른다.
+
 ## #15 CREATE 초안 승인 — 현재 작업 트리
 
 2026-11-06 사용자가 설계와 별도로 Backend·테스트·문서 구현을 승인했다. HEAD `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`의 미커밋 작업 트리에 #15 승인 경로를 구현했다. [구현 Handoff](ISSUE_15_IMPLEMENTATION_HANDOFF.md)와 [승인 API 계약](ADMIN_API.md)을 따른다. 아래 목표 설명 중 CREATE 승인에 관한 내용은 이 현재 계약이 우선한다.
@@ -91,6 +99,7 @@ erDiagram
         text description
         varchar source_check_status
         timestamptz source_checked_at
+        varchar source_check_reason
     }
     MENTION {
         bigint id PK

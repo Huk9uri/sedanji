@@ -1,6 +1,16 @@
 # 관리자 등록 모델 마이그레이션 계획
 
-작성일: 2026-11-02. V3는 구현·테스트 후 로컬 개발 DB 적용을 완료했다. [적용 결과](DIRECT_REGISTRATION_MIGRATION.md)를 참조한다. V4는 아직 계획이며 미적용이다. [모델](DOMAIN_MODEL.md)과 [API 계약](ADMIN_API.md)을 함께 적용한다.
+작성일: 2026-11-02. V3의 과거 개발 DB 적용 기록은 [적용 결과](DIRECT_REGISTRATION_MIGRATION.md)를 참조한다. 현재 작업 트리의 V4는 아래 #16 절이며 실제 대상 DB 적용 여부는 확인하지 않았다. [모델](DOMAIN_MODEL.md)과 [API 계약](ADMIN_API.md)을 함께 적용한다.
+
+## #16 V4 작업 트리: Video 출처 상태만 확장
+
+V1~V3 원본을 유지하고 `V4__video_source_check.sql`을 추가했다. 기존 계획의 정정·공개 제어 테이블은 이번에 만들지 않는다. 이후 후속 migration 번호는 그 시점에 다시 정한다.
+
+Video에 NOT NULL DEFAULT UNCHECKED 상태와 nullable TIMESTAMPTZ 확인 시각·VARCHAR(20) 원인을 추가한다. 상태/시각/원인의 조합은 [API #16 계약](ADMIN_API.md)과 일치하는 CHECK로 제한한다. 기존 메타데이터·Mention·초안·감사·영수증은 변경하지 않고 AVAILABLE 백필도 하지 않는다. 기존 JPA 생성자는 UNCHECKED, 기존 native insert는 DB DEFAULT를 사용한다. 공개 DTO는 유지한다.
+
+배포는 migration 후 새 앱 순서다. 확장 스키마는 기존 컬럼만 쓰는 구 앱을 수용하며 신 앱은 V4 전 스키마를 사용할 수 없다. `ddl-auto=validate`, `open-in-view=false`를 유지한다. ALTER TABLE은 강한 잠금과 CHECK 검증의 기존 행 스캔을 수반할 수 있다. 실제 데이터 규모·잠금 시간·혼재 배포·백업 복원·운영 성능은 미검증이다. 실제 DB 접속·적용·상태 보정은 실행하지 않는다. 적용 실패 시 자동 repair/clean/down migration을 하지 않고 원인과 대상 DB 상태를 별도로 확인해야 한다.
+
+신규 테스트는 빈 DB→V4, V3 fixture→V4의 메타데이터·관계·공개 상태·초안·감사·영수증 보존, 기존 영상 UNCHECKED, 불법 상태 조합 거부와 기존 JPA/native 생성 호환을 assertion한다. 2026-11-06 최초 AuthorizationManager 거부 후 정책 변경 없이 권한 확장으로 실행했다. 새 테스트 mock 접근 범위를 수정한 뒤 기존 verify 진입점의 Backend 재검증은 신규 migration·조회 테스트를 포함하여 컴파일·178개 테스트 PASS(실패·skip 0, 종료 0)다. 실제 개발 DB 적용·운영 데이터 안전성 검증은 아니다.
 
 ## 원칙과 적용 전 점검
 
@@ -47,7 +57,7 @@ WHERE conrelid IN ('chefs'::regclass, 'restaurants'::regclass, 'mentions'::regcl
 
 API 선택 토큰은 서버 세션 임시 캐시이므로 검색 스냅샷 업무 테이블을 새로 만들지 않는다. 멱등키 결과는 최대 24시간 보관하며 요청 시 만료 자료를 제한된 건수로 정리한다. 별도 Redis·분산 작업 큐를 도입하지 않는다.
 
-## V4 예정: 정정·공개 제어·출처 확인
+## 과거 V4 제안: 정정·공개 제어·출처 확인 (미승인 후속 범위)
 
 1. restaurant_revisions·chef_revisions를 생성한다. 대상·제안값·필수 정정 사유·base_version·자체 version·DRAFT/APPLIED·작성/수정자·시각을 저장한다. 정정 대기 중인 현재 기본 정보는 바꾸지 않는다.
 2. MentionDraft CORRECTION과 각 Revision에 대상별 열린 초안 하나를 보장하는 부분 UNIQUE를 둔다. 기존 CREATE 초안의 미완성 허용과 구분한다.
