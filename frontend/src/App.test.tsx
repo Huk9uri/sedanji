@@ -8,10 +8,26 @@ const { api } = vi.hoisted(() => ({ api: vi.fn<(path: string, options?: ApiOptio
 vi.mock('./api', async importOriginal => ({ ...await importOriginal<typeof import('./api')>(), api }));
 vi.mock('./KakaoMap', () => ({ default: ({ restaurants }: { restaurants: Restaurant[] }) => <div data-testid="map">{restaurants.length} markers</div> }));
 afterEach(cleanup);
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => { vi.resetAllMocks(); window.history.replaceState(null, '', '/'); });
 const restaurant: Restaurant = { id: 1, kakaoPlaceId: '1158460117', address: null, longitude: 126.90687, latitude: 37.554615, name: '뽀요베리', roadAddress: '서울 마포구 월드컵로13길 55-15', placeUrl: 'http://place.map.kakao.com/1158460117', mentions: [{ mentionId: 1, chefName: '윤남노', videoId: 'RMTJPFKRbEk', videoTitle: '원본 영상', mentionType: 'VISITED', timestampSeconds: null }] };
 
 describe('public and approval workflow', () => {
+  it('guards map navigation and logout from the unsaved direct registration form', async () => {
+    api.mockImplementation(async(path)=>{
+      if(path==='/session') return {authenticated:true,username:'admin'};
+      if(path.startsWith('/admin/places?')) return {candidates:[{placeSelectionToken:'token',place:{id:'1',name:'등록 장소',roadAddress:'도로',address:null,longitude:127,latitude:37,placeUrl:'https://place.map.kakao.com/1'}}],totalCount:1,complete:true};
+      return [];
+    });
+    render(<App/>);fireEvent.click(screen.getByRole('button',{name:'관리자'}));
+    fireEvent.click(await screen.findByRole('button',{name:'식당 직접 등록 · 초안 이어쓰기'}));
+    fireEvent.change(screen.getByLabelText('식당 이름 검색'),{target:{value:'장소'}});fireEvent.click(screen.getByRole('button',{name:'장소 검색'}));
+    fireEvent.click(await screen.findByRole('button',{name:'이 지점 선택'}));
+    fireEvent.click(screen.getByRole('button',{name:'맛집 지도'}));expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'계속 작성'}));expect(screen.getByLabelText('검증 메모 (선택)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'로그아웃'}));expect(api.mock.calls.filter(([path])=>path==='/logout')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button',{name:'계속 작성'}));fireEvent.click(screen.getByRole('button',{name:'맛집 지도'}));
+    fireEvent.click(screen.getByRole('button',{name:'저장하지 않고 나가기'}));expect(await screen.findByText('첫 단골집을 기다리고 있어요')).toBeInTheDocument();
+  });
   it('shows empty approved list without invented restaurants', async () => {
     api.mockResolvedValue([]);
     render(<App/>);
