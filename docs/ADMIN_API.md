@@ -4,6 +4,16 @@
 
 ## #19 정정·재승인·이력 — 승인된 작업 트리
 
+### Handoff v3 — 승인 전 확인 감사·식당 rebase 보완
+
+2026-11-07 승인된 v3 보완은 신규 API/요청/상태 코드·migration 없이 기존 이력 afterValue만 확장한다. 재승인에서 영향 hash 일치를 검증한 직후, 원본 적용 전에 문자열·숫자만 가진 불변 확인 객체를 생성해 감사 저장에 명시적으로 전달한다. `approvalConfirmation`에는 `schemaVersion=1`, 요청의 `expectedImpactHash`, 적용 전 서버의 `validatedImpactHash`, 당시 `targetVersion`·`revisionVersion`·`impactTotalElements`·`publicImpactCount`를 저장한다. 두 hash는 일치해야 한다. 영향 건수와 hash는 첫 페이지가 아닌 기존 전체 영향 집합 기준이다. 감사 실패 시 원본·APPLIED·확인 객체·영수증은 함께 롤백한다.
+
+기존 `revision`·`target`의 적용 후 스냅샷은 유지하며, 그 안의 조회용 impactHash는 승인 당시 확인 hash로 취급하지 않는다. 생성·PATCH·rebase 감사에는 확인 객체를 생성하지 않고, 과거 감사의 누락 필드는 그대로 보존한다. 역산·백필하지 않는다. 관리자 이력 UI는 확인 객체가 있는 경우에만 “승인 당시 영향 확인”에서 hash·버전·전체/공개 영향 건수를 표시한다.
+
+Restaurant rebase는 최신 baseSnapshot/baseVersion과 자체 version·감사를 갱신하면서 저장된 공식 proposedValues의 name·roadAddress·address·longitude·latitude·placeUrl 전체를 그대로 유지한다. 이전 기준과 같았던 필드와 null 주소도 보존하고 changedFields는 새 기준과 비교해 다시 계산한다. 모든 필드를 강제로 변경 표시하지 않는다. Mention·Chef의 기존 필드 기반 rebase는 유지한다. rebase 자체는 공개본을 변경하지 않으며 토큰·외부 API를 재검증하지 않는다. 새 공식 제안은 기존 장소 토큰 PATCH에서만 교체한다. 구버전 rebase로 혼합 저장된 제안은 자동 복구하지 않고 관리자가 공식 결과를 다시 선택해 PATCH하도록 안내한다. V1~V5·과거 감사·기존 잠금·공개/멱등 계약은 변경하지 않는다. 이번 보완 검증은 아래 과거 PASS와 구분하여 [구현 기록](ADMIN_IMPLEMENTATION_PLAN.md)에 기록한다.
+
+
+
 기준 `feat/AdminPage` / `7f36acd3873be4f9a3628f75b972fb110b2c15fa`. 시작 변경 없음. Handoff v2 D1~D9 및 전체 구현 승인을 따르며 기존 #18 후속 커밋·CREATE API/DTO·공개 DTO를 보존한다. 최초 작성 당시에는 실행 제한으로 NOT RUN이었다. 2026-11-07 사용자 실행 승인 후 Backend 컴파일·199개 테스트(실패/skip 0)·bootJar, Frontend 타입 검사·97개 테스트(13개 파일)·빌드가 각각 PASS/0이다. 실제 개발/운영 DB 적용·외부 API·브라우저 검증은 하지 않았다. 아래 과거 PASS는 #19 검증 근거가 아니다.
 
 모든 경로는 `/api/admin` 아래이며 세션 ADMIN·활성 관리자 및 쓰기 CSRF를 요구한다. 정정안 저장/PATCH/rebase는 공개본을 변경하지 않는다. APPROVED 관계만 정정하고 PUBLISHED/SUSPENDED는 유지한다. candidateId·evidence·원본 후보 근거/영상 정보를 보존하며 현재 영상 변경으로 원본 근거를 덮어쓰지 않는다. Chef는 동일인 표기만, Restaurant은 같은 Kakao ID의 공식 이름·두 주소·좌표·URL 전체만 적용한다. 수동 override·병합·삭제·새 공개 제어는 없다.
@@ -30,7 +40,7 @@ Mention changes는 chefId·restaurantId·videoId·mentionType·timestampSeconds�
 
 목록 응답은 `{target,items,totalElements,page,size,hasNext}`이며 target은 현재 대상 스냅샷, items는 id·version·baseVersion·status·changeReason·updatedAt 요약이다. 단건/생성/PATCH/rebase/승인 응답은 id·targetId·kind(MENTION/RESTAURANT/CHEF)·version·baseVersion·status·baseSnapshot·currentSnapshot·proposedValues·changedFields·referenceSnapshot·currentReferences·baseConflict·referenceConflict·changeReason·작성/수정/적용 관리자 ID와 시각·impactHash·impact 페이지·publicImpactCount를 제공한다. 승인에는 targetVersion, 관계 정정에는 restaurantId·previousRestaurantId·mentionId도 제공한다.
 
-영향 hash는 페이지와 무관한 전체 실제 관계를 ID순 정렬한 version·검증/공개 상태·표시값과 대상·제안·참조의 canonical JSON SHA-256이다. Chef/Restaurant은 연결 관계 전체, Mention은 대상 및 이전/새 식당·셰프 연결 관계를 포함한다. 공개 영향은 APPROVED AND PUBLISHED만 센다. 참조 Restaurant/Chef version과 저장된 Video 제목·채널·게시 시각 fingerprint를 보존한다(Video에 가짜 version은 추가하지 않음). 참조 충돌을 PATCH로 숨기지 않으며 명시적 rebase로 기준을 수용한다. rebase는 변경 필드 제안을 유지하고 나머지는 최신 값으로 갱신하며 이전 기준·제안을 감사한다.
+영향 hash는 페이지와 무관한 전체 실제 관계를 ID순 정렬한 version·검증/공개 상태·표시값과 대상·제안·참조의 canonical JSON SHA-256이다. Chef/Restaurant은 연결 관계 전체, Mention은 대상 및 이전/새 식당·셰프 연결 관계를 포함한다. 공개 영향은 APPROVED AND PUBLISHED만 센다. 참조 Restaurant/Chef version과 저장된 Video 제목·채널·게시 시각 fingerprint를 보존한다(Video에 가짜 version은 추가하지 않음). 참조 충돌을 PATCH로 숨기지 않으며 명시적 rebase로 기준을 수용한다. Mention·Chef rebase는 변경 필드 제안을 유지하고 나머지는 최신 값으로 갱신하며 이전 기준·제안을 감사한다. Restaurant의 전체 공식 제안 보존은 위 v3 보완 계약을 따른다.
 
 오류는 STALE_VERSION, STALE_BASE_VERSION(참조 변경 포함), IMPACT_CHANGED, DUPLICATE_RELATION, OPEN_REVISION_EXISTS, REVISION_ALREADY_APPLIED, IDEMPOTENCY_CONFLICT(409), NO_CHANGES(400), PLACE_ID_MISMATCH(400), 기존 장소 토큰 오류(410)로 구분한다. 대상별 DRAFT 1개, APPLIED 읽기 전용이며 이후 새 정정이 가능하다. 본인 작성 건 승인도 허용한다. 생성/승인은 동일 관리자·키·경로·본문의 유효 성공 영수증만 24시간 재생한다. PATCH/rebase는 version만 보호하고 영수증·자동 재전송은 없다.
 
