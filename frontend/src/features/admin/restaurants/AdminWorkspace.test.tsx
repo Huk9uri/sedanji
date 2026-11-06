@@ -43,7 +43,7 @@ it('does not search on typing and resets pages on executed filters, preserving c
   const before=listCalls().length;fireEvent.change(screen.getByLabelText('관리자 식당 검색'),{target:{value:'한빛 & 김'}});expect(listCalls()).toHaveLength(before);
   fireEvent.click(screen.getByRole('button',{name:'검색'}));await waitFor(()=>expect(listCalls().at(-1)?.[0]).toContain('query=%ED%95%9C%EB%B9%9B+%26+%EA%B9%80'));
   await screen.findByRole('button',{name:'다음 식당 페이지'});fireEvent.click(screen.getByRole('button',{name:'다음 식당 페이지'}));await waitFor(()=>expect(listCalls().at(-1)?.[0]).toContain('page=1'));
-  await openDetail();fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));expect(screen.getByLabelText('관리자 식당 검색')).toHaveValue('한빛 & 김');expect(screen.getByText(/전체 40곳 · 2페이지/)).toBeInTheDocument();
+  await openDetail();fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));expect(screen.getByLabelText('관리자 식당 검색')).toHaveValue('한빛 & 김');expect(await screen.findByText(/전체 40곳 · 2페이지/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('공개 관계 필터'),{target:{value:'PUBLISHED'}});await waitFor(()=>expect(listCalls().at(-1)?.[0]).toContain('publication=PUBLISHED&needsSourceReview=false&page=0'));
   fireEvent.click(screen.getByLabelText('출처 재확인 필요만'));await waitFor(()=>expect(listCalls().at(-1)?.[0]).toContain('needsSourceReview=true&page=0'));
 });
@@ -98,10 +98,22 @@ it('keeps successful draft creation and retries only GET after a refresh failure
     return defaults(path);
   });mount();await openDetail();fireEvent.click(screen.getByRole('button',{name:'관계 추가'}));await fixedReady();
   fireEvent.click(screen.getByRole('button',{name:'임시 저장'}));expect(await screen.findByText('초안을 저장했습니다.')).toBeInTheDocument();
-  const retry=await screen.findByRole('button',{name:'관련 조회 다시 시도'});fireEvent.click(retry);
-  await waitFor(()=>expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10?')).length).toBeGreaterThanOrEqual(3));
+  const result=screen.getByRole('button',{name:'저장한 식당 상세로 이동'});
+  await waitFor(()=>expect(result).toBeEnabled());
+  const details=()=>api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10?'));
+  const drafts=()=>api.mock.calls.filter(([path])=>path.includes('/mention-drafts?'));
+  const before=details().length, beforeList=listCalls().length;
+  fireEvent.click(result);
+  const retry=await screen.findByRole('button',{name:'관련 조회 다시 시도'});
+  expect(details()).toHaveLength(before+1); expect(listCalls()).toHaveLength(beforeList);
+  await waitFor(()=>expect(drafts()).toHaveLength(2));
+  const beforeDrafts=drafts().length;
+  saved=false; fireEvent.click(retry);
+  await screen.findByRole('article',{name:'관계 101'});
+  expect(details()).toHaveLength(before+2);expect(drafts()).toHaveLength(beforeDrafts);
   expect(api.mock.calls.filter(([,options])=>options?.method==='POST')).toHaveLength(1);
-  expect(screen.getByText('초안을 저장했습니다.')).toBeInTheDocument();
+  expect(screen.getByText('작업 완료 · 식당 #10 · 초안 #201')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'관련 조회 다시 시도'})).not.toBeInTheDocument();
 });
 it('does not insert a saved restaurant back into a filter that excludes it',async()=>{
   let saved=false;api.mockImplementation(async(path,options)=>{
@@ -127,4 +139,143 @@ it('clears query data on expiry and ignores previous-account responses',async()=
   const view=mount(expired);await act(async()=>{reject(new ApiError(401,'login'));});await waitFor(()=>expect(expired).toHaveBeenCalled());
   view.rerender(<AdminWorkspace username={undefined} authGeneration={2} onExpired={expired} onPublished={vi.fn(async()=>{})} onGuard={vi.fn()}/>);
   expect(screen.queryByRole('button',{name:'한빛국수'})).not.toBeInTheDocument();expect(screen.queryByText('login')).not.toBeInTheDocument();
+});
+it('rejects an overlong executed search without fetching or replacing the current page and rows',async()=>{
+  api.mockImplementation(async path=>path.startsWith('/admin/restaurants?')?page([item],40,Number(new URLSearchParams(path.split('?')[1]).get('page')),true):defaults(path));
+  mount();await screen.findByRole('button',{name:'한빛국수'});
+  fireEvent.change(screen.getByLabelText('관리자 식당 검색'),{target:{value:'기존'}});
+  fireEvent.click(screen.getByRole('button',{name:'검색'}));await screen.findByRole('button',{name:'한빛국수'});
+  fireEvent.click(screen.getByRole('button',{name:'다음 식당 페이지'}));await screen.findByText('전체 40곳 · 2페이지');
+  const before=listCalls().length, last=listCalls().at(-1)?.[0];
+  fireEvent.change(screen.getByLabelText('관리자 식당 검색'),{target:{value:'😀'.repeat(101)}});
+  fireEvent.click(screen.getByRole('button',{name:'검색'}));
+  expect(screen.getByRole('alert')).toHaveTextContent('100자 이하');
+  expect(listCalls()).toHaveLength(before);expect(listCalls().at(-1)?.[0]).toBe(last);
+  expect(screen.getByText('전체 40곳 · 2페이지')).toBeInTheDocument();expect(screen.getByRole('button',{name:'한빛국수'})).toBeInTheDocument();
+});
+it.each(['가','😀'])('requests 100 code points but never requests 101 using %s',async character=>{
+  mount();await screen.findByRole('button',{name:'한빛국수'});
+  fireEvent.change(screen.getByLabelText('관리자 식당 검색'),{target:{value:`  ${character.repeat(100)}  `}});
+  fireEvent.click(screen.getByRole('button',{name:'검색'}));await screen.findByRole('button',{name:'한빛국수'});
+  expect(new URLSearchParams(listCalls().at(-1)![0].split('?')[1]).get('query')).toBe(character.repeat(100));
+  const before=listCalls().length;
+  const input=screen.getByLabelText('관리자 식당 검색');fireEvent.change(input,{target:{value:character.repeat(101)}});
+  fireEvent.submit(input.closest('form')!);
+  expect(screen.getByRole('alert')).toHaveTextContent('100자 이하');expect(listCalls()).toHaveLength(before);
+  expect(screen.getByRole('button',{name:'한빛국수'})).toBeInTheDocument();
+});
+it('retains direct approval R10/M301 and retries public and visible failed reads without another approval',async()=>{
+  let approved=false, failDetail=true;
+  const published=vi.fn<()=>Promise<void>>().mockRejectedValueOnce(new Error('public failed')).mockResolvedValue(undefined);
+  api.mockImplementation(async(path,options)=>{
+    if(path.startsWith('/admin/places?'))return {candidates:[{placeSelectionToken:'token',place:{...place,id:'123'}}],totalCount:1,complete:true};
+    if(path==='/admin/videos/metadata')return {id:'11111111111',title:'영상 A',channelTitle:'채널 A',publishedAt:'2026-01-01T00:00:00Z',description:'',extractionWarning:''};
+    if(path==='/admin/mentions'&&options?.method==='POST'){approved=true;return {restaurantId:10,mentionId:301,version:0,verificationStatus:'APPROVED',publicationStatus:'PUBLISHED'};}
+    if(approved&&path.startsWith('/admin/restaurants/10?')){
+      if(failDetail)throw new ApiError(500,'detail failed');
+      return {...detail,mentions:page([{...detail.mentions.items[1],id:301}])};
+    }
+    return defaults(path);
+  });
+  render(<AdminWorkspace username="admin" authGeneration={1} onExpired={vi.fn()} onPublished={published} onGuard={vi.fn()}/>);
+  await screen.findByRole('button',{name:'한빛국수'});fireEvent.click(screen.getByRole('button',{name:'식당 직접 등록 · 초안 이어쓰기'}));
+  fireEvent.change(screen.getByLabelText('식당 이름 검색'),{target:{value:'한빛'}});fireEvent.click(screen.getByRole('button',{name:'장소 검색'}));
+  fireEvent.click(await screen.findByRole('button',{name:'이 지점 선택'}));
+  fireEvent.change(screen.getByLabelText('관계 셰프 (승인 필수)'),{target:{value:'1'}});
+  fireEvent.change(screen.getByLabelText('출처 영상 URL'),{target:{value:'https://youtu.be/11111111111'}});
+  fireEvent.click(screen.getByRole('button',{name:'메타데이터 확인'}));await screen.findByText('영상 A');
+  fireEvent.change(screen.getByLabelText('관계 유형 (승인 필수)'),{target:{value:'VISITED'}});
+  fireEvent.click(screen.getByRole('button',{name:'승인 전 검토'}));fireEvent.click(screen.getByRole('button',{name:'직접 승인·공개'}));
+  await screen.findByText(/직접 승인 완료 · 관계 ID 301/);
+  const result=screen.getByRole('button',{name:'저장한 식당 상세로 이동'});await waitFor(()=>expect(result).toBeEnabled());
+  expect(screen.getByText('작업 완료 · 식당 #10 · 관계 #301')).toBeInTheDocument();
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10?'))).toHaveLength(0);
+  expect(listCalls()).toHaveLength(1);expect(published).toHaveBeenCalledTimes(1);
+  fireEvent.click(result);await screen.findByText('detail failed');
+  const draftsBefore=api.mock.calls.filter(([path])=>path.includes('/mention-drafts?')).length;
+  failDetail=false;fireEvent.click(screen.getByRole('button',{name:'관련 조회 다시 시도'}));
+  await screen.findByRole('article',{name:'관계 301'});
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'관련 조회 다시 시도'})).not.toBeInTheDocument());
+  expect(published).toHaveBeenCalledTimes(2);
+  expect(api.mock.calls.filter(([path])=>path.includes('/mention-drafts?'))).toHaveLength(draftsBefore);
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10?'))).toHaveLength(2);
+  expect(api.mock.calls.filter(([path,o])=>path==='/admin/mentions'&&o?.method==='POST')).toHaveLength(1);
+  expect(screen.getByText('작업 완료 · 식당 #10 · 관계 #301')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'동일 키·동일 요청으로 결과 재확인'})).not.toBeInTheDocument();
+});
+it('keeps D201 APPLIED and reads relation and draft page zero once when returning after approval',async()=>{
+  let approved=false;
+  const published=vi.fn(async()=>{});
+  api.mockImplementation(async(path,options)=>{
+    if(path==='/admin/mention-drafts/201/approve'&&options?.method==='POST'){
+      approved=true;return {draftId:201,draftVersion:8,draftStatus:'APPLIED',mentionId:301,restaurantId:10,mentionVersion:0,verificationStatus:'APPROVED',publicationStatus:'PUBLISHED'};
+    }
+    if(path.startsWith('/admin/restaurants/10?'))return {...detail,mentions:approved?page([{...detail.mentions.items[1],id:301}]):page(detail.mentions.items,40,Number(new URLSearchParams(path.split('?')[1]).get('mentionPage')),true)};
+    if(path.includes('/mention-drafts?'))return approved?page([]):page([draft],40,Number(new URLSearchParams(path.split('?')[1]).get('page')),true);
+    return defaults(path);
+  });
+  render(<AdminWorkspace username="admin" authGeneration={1} onExpired={vi.fn()} onPublished={published} onGuard={vi.fn()}/>);
+  await openDetail();await screen.findByRole('button',{name:'다음 초안 페이지'});
+  fireEvent.click(screen.getByRole('button',{name:'다음 관계 페이지'}));
+  await waitFor(()=>expect(api.mock.calls.some(([path])=>path.includes('mentionPage=1'))).toBe(true));
+  fireEvent.click(screen.getByRole('button',{name:'다음 초안 페이지'}));
+  await waitFor(()=>expect(api.mock.calls.some(([path])=>path.includes('/mention-drafts?status=DRAFT&page=1'))).toBe(true));
+  fireEvent.click(await screen.findByRole('button',{name:'초안 #201 이어쓰기'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'승인 전 검토'})).toBeEnabled());
+  const before=api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10')).length;
+  fireEvent.click(screen.getByRole('button',{name:'승인 전 검토'}));fireEvent.click(screen.getByRole('button',{name:'저장된 초안 승인·공개'}));
+  await screen.findByText(/적용 완료 · 관계 ID 301/);
+  const result=screen.getByRole('button',{name:'저장한 식당 상세로 이동'});await waitFor(()=>expect(result).toBeEnabled());
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10'))).toHaveLength(before);
+  expect(screen.queryByRole('button',{name:'승인 전 검토'})).not.toBeInTheDocument();
+  fireEvent.click(result);await screen.findByRole('article',{name:'관계 301'});await screen.findByText('작성 중인 초안이 없습니다.');
+  const after=api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10')).slice(before);
+  expect(after.map(([path])=>path)).toEqual(expect.arrayContaining(['/admin/restaurants/10?mentionPage=0&mentionSize=20','/admin/restaurants/10/mention-drafts?status=DRAFT&page=0&size=20']));
+  expect(after).toHaveLength(2);expect(published).toHaveBeenCalledTimes(1);
+  expect(api.mock.calls.filter(([path,o])=>path==='/admin/mention-drafts/201/approve'&&o?.method==='POST')).toHaveLength(1);
+  expect(screen.getByText('작업 완료 · 식당 #10 · 초안 #201 · 관계 #301')).toBeInTheDocument();
+});
+it('invalidates both restaurants on a draft move and reads fresh data only on reentry with the same list conditions',async()=>{
+  let moved=false;
+  const newPlace={...place,id:20,kakaoPlaceId:'456',name:'골목밥',placeUrl:'https://place.map.kakao.com/456'};
+  api.mockImplementation(async(path,options)=>{
+    if(path.startsWith('/admin/places?'))return {candidates:[{placeSelectionToken:'move-token',place:{...newPlace,id:'456'}}],totalCount:1,complete:true};
+    if(path==='/admin/mention-drafts/201'&&options?.method==='PATCH'){moved=true;return {...draft,version:8,restaurant:newPlace};}
+    if(moved&&path.startsWith('/admin/restaurants/10/mention-drafts?'))return page([]);
+    if(moved&&path.startsWith('/admin/restaurants/20/mention-drafts?'))return page([{...draft,version:8,restaurant:newPlace}]);
+    return defaults(path);
+  });
+  mount();await screen.findByRole('button',{name:'한빛국수'});
+  fireEvent.change(screen.getByLabelText('공개 관계 필터'),{target:{value:'NO_PUBLIC_RELATION'}});
+  await openDetail();fireEvent.click(await screen.findByRole('button',{name:'초안 #201 이어쓰기'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button',{name:'장소 다시 선택'}));
+  fireEvent.change(screen.getByLabelText('식당 이름 검색'),{target:{value:'골목'}});fireEvent.click(screen.getByRole('button',{name:'장소 검색'}));
+  fireEvent.click(await screen.findByRole('button',{name:'이 지점 선택'}));
+  const before=api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants')).length;
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await screen.findByText('초안을 수정 저장했습니다.');
+  const result=screen.getByRole('button',{name:'저장한 식당 상세로 이동'});await waitFor(()=>expect(result).toBeEnabled());
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants'))).toHaveLength(before);
+  expect(screen.getByText('작업 완료 · 식당 #20 · 이전 식당 #10 · 초안 #201')).toBeInTheDocument();
+  fireEvent.click(result);await screen.findByRole('heading',{name:'골목밥'});await screen.findByRole('button',{name:'초안 #201 이어쓰기'});
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/20?'))).toHaveLength(1);
+  expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/20/mention-drafts?'))).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));await screen.findByRole('button',{name:'한빛국수'});
+  expect(screen.getByLabelText('공개 관계 필터')).toHaveValue('NO_PUBLIC_RELATION');
+  expect(listCalls().at(-1)?.[0]).toContain('publication=NO_PUBLIC_RELATION');
+  await openDetail();await screen.findByText('작성 중인 초안이 없습니다.');
+  expect(screen.queryByRole('button',{name:'초안 #201 이어쓰기'})).not.toBeInTheDocument();
+  expect(api.mock.calls.filter(([path,o])=>path==='/admin/mention-drafts/201'&&o?.method==='PATCH')).toHaveLength(1);
+  expect(api.mock.calls.find(([path,o])=>path==='/admin/mention-drafts/201'&&o?.method==='PATCH')?.[1]?.body).toEqual({expectedVersion:7,placeSelectionToken:'move-token'});
+});
+it('discards a late detail authentication error after changing selection',async()=>{
+  let reject!:(e:unknown)=>void;
+  const expired=vi.fn();
+  api.mockImplementation(async path=>path.startsWith('/admin/restaurants/10?')?new Promise((_,r)=>{reject=r;}):defaults(path));
+  mount(expired);fireEvent.click(await screen.findByRole('button',{name:'상세 보기 · 한빛국수'}));
+  fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));
+  fireEvent.click(await screen.findByRole('button',{name:'상세 보기 · 골목밥'}));await screen.findByRole('heading',{name:'골목밥'});
+  await act(async()=>{reject(new ApiError(401,'old session'));});
+  expect(expired).not.toHaveBeenCalled();expect(screen.queryByText('old session')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading',{name:'골목밥'})).toBeInTheDocument();
 });

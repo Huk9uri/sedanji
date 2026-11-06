@@ -8,7 +8,6 @@ import RestaurantDetail from './restaurants/RestaurantDetail';
 import { initialConditions } from './restaurants/types';
 import { useRestaurantList } from './restaurants/useRestaurantList';
 import { useRestaurantDetail } from './restaurants/useRestaurantDetail';
-import { restaurantApi } from './restaurants/restaurantApi';
 import LegacyCandidateReview from './LegacyCandidateReview';
 import './admin-workspace.css';
 export type LeaveGuard = (proceed: () => void) => void;
@@ -29,22 +28,23 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   const [entryKey, setEntryKey] = useState(0);
   const [visitedCandidates, setVisitedCandidates] = useState(false);
   const [backTo, setBackTo] = useState<'list' | 'detail'>('list');
-  const [refreshError, setRefreshError] = useState('');
+  const [publicError, setPublicError] = useState(false);
+  const [publicLoading, setPublicLoading] = useState(false);
   const [lastCommit, setLastCommit] = useState<RegistrationCommitted | null>(null);
   const guard = useRef<LeaveGuard | null>(null);
   const listScroll = useRef(0);
   const owner = useRef(username);
   const epoch = useRef(authGeneration); epoch.current = authGeneration;
   const auth = useRef(username); auth.current = username;
-  const refreshController = useRef<AbortController | null>(null);
+  const publicSequence = useRef(0);
   const registerGuard = useCallback((next: LeaveGuard | null) => { guard.current=next; onGuard(next); }, [onGuard]);
   function navigate(next: () => void) { if (guard.current) guard.current(next); else next(); }
   const failure = useCallback((e: unknown) => { if (auth.current && e instanceof ApiError && e.status === 401) onExpired(); }, [onExpired]);
-  const list = useRestaurantList(conditions, setConditions, !!username, authGeneration, revision, failure);
-  const detail = useRestaurantDetail(selected, mentionPage, draftPage, !!username && selected !== null, authGeneration, revision + detailRevision, failure);
+  const list = useRestaurantList(conditions, setConditions, !!username && view === 'list', authGeneration, revision, failure);
+  const detail = useRestaurantDetail(selected, mentionPage, draftPage, !!username && view === 'detail' && selected !== null, authGeneration, revision + detailRevision, failure);
   useEffect(() => {
-    refreshController.current?.abort();
-    if (!username) { setRefreshError(''); return; }
+    publicSequence.current++; setPublicError(false); setPublicLoading(false);
+    if (!username) return;
     if (owner.current && owner.current !== username) {
       setInput(''); setConditions(initialConditions()); setSelected(null); setMentionPage(0); setDraftPage(0);
       setView('list'); setEntry({ kind:'new' }); setEntryKey(n=>n+1); setLastCommit(null); setVisitedCandidates(false); draftUrl(null); listScroll.current=0;
@@ -53,7 +53,7 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   }, [username, authGeneration]);
   useEffect(() => {
     auth.current=username; epoch.current=authGeneration;
-    return () => { auth.current=undefined; epoch.current++; refreshController.current?.abort(); };
+    return () => { auth.current=undefined; epoch.current++; publicSequence.current++; };
   }, []);
   useEffect(() => {
     if (view !== 'list' || !list.data) return;
@@ -68,26 +68,48 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   }
   function openList() { navigate(() => { setView('list'); draftUrl(null); }); }
   async function refreshRelated(event: RegistrationCommitted) {
-    const gen=epoch.current;
-    if (!auth.current) return;
-    setLastCommit(event); setRefreshError(''); setRevision(n=>n+1); setMentionPage(0); setDraftPage(0);
-    refreshController.current?.abort();
-    const controller=new AbortController(); refreshController.current=controller;
-    const ids=[...new Set([event.restaurantId,event.previousRestaurantId].filter((id): id is number=>id !== undefined))];
-    // Refresh affected records even when a different detail or the form is visible.
-    const results=await Promise.allSettled([restaurantApi.list(conditions,controller.signal), ...ids.flatMap(id=>[
-      restaurantApi.detail(id,0,20,controller.signal),restaurantApi.drafts(id,0,20,controller.signal),
-    ])]);
-    if (controller.signal.aborted || gen!==epoch.current) return;
-    const rejected=results.filter((result): result is PromiseRejectedResult=>result.status==='rejected');
-    if(rejected.length) { rejected.forEach(result=>failure(result.reason)); setRefreshError('저장·승인은 완료됐지만 관련 조회 갱신에 실패했습니다. 조회만 다시 시도하세요.'); }
+    if (!auth.current || epoch.current !== authGeneration) return;
+    setLastCommit(event);
+    // Visible reads belong to hooks; hidden records, including both sides of a
+    // restaurant move, are read afresh on entry instead of confirmation GETs.
+    setRevision(n=>n+1); setMentionPage(0); setDraftPage(0);
   }
-  async function candidateChanged() { if (!auth.current || epoch.current !== authGeneration) return; setRevision(n=>n+1); setMentionPage(0); setDraftPage(0); await onPublished(); }
+  async function refreshPublic() {
+    if (!auth.current || epoch.current !== authGeneration) return;
+    const gen=epoch.current, request=++publicSequence.current;
+    setPublicError(false); setPublicLoading(true);
+    try { await onPublished(); }
+    catch (e) {
+      if (auth.current && gen===epoch.current && request===publicSequence.current) {
+        setPublicError(true); failure(e); throw e;
+      }
+    } finally {
+      if (auth.current && gen===epoch.current && request===publicSequence.current) setPublicLoading(false);
+    }
+  }
+  async function candidateChanged() {
+    if (!auth.current || epoch.current !== authGeneration) return;
+    setRevision(n=>n+1); setMentionPage(0); setDraftPage(0);
+    // Candidate writes have already succeeded; read failures cannot undo them.
+    try { await refreshPublic(); } catch { /* The read error is displayed below. */ }
+  }
+  const relatedError = !!username && lastCommit !== null && (view === 'list' ? list.error !== undefined :
+    view === 'detail' && (detail.detail.error !== undefined || detail.drafts.error !== undefined));
+  function retryRelated() {
+    if (!auth.current) return;
+    if (view === 'list' && list.error !== undefined) list.refresh();
+    if (view === 'detail') {
+      if (detail.detail.error !== undefined) detail.detail.refresh();
+      if (detail.drafts.error !== undefined) detail.drafts.refresh();
+    }
+    if (publicError && !publicLoading) void refreshPublic().catch(()=>{});
+  }
   const active=!!username;
   return <div className="admin-workspace"><aside className="admin-sidebar"><strong>세단지 <small>ADMIN</small></strong><nav aria-label="관리자 업무 메뉴">
     <button disabled title="준비 중">제보 관리 · 준비 중</button><button className="selected" onClick={openList}>식당 관리</button>
   </nav></aside><div className="admin-workspace-content">
-    {refreshError && <p role="alert" className="error">{refreshError} <button disabled={!active} onClick={()=>{ if(lastCommit) void refreshRelated(lastCommit); }}>관련 조회 다시 시도</button></p>}
+    {active && lastCommit && <p role="status">작업 완료 · 식당 #{lastCommit.restaurantId}{lastCommit.previousRestaurantId !== undefined ? ` · 이전 식당 #${lastCommit.previousRestaurantId}` : ''}{lastCommit.draftId !== undefined ? ` · 초안 #${lastCommit.draftId}` : ''}{lastCommit.mentionId !== undefined ? ` · 관계 #${lastCommit.mentionId}` : ''}</p>}
+    {(relatedError || (active && publicError)) && <p role="alert" className="error">{lastCommit ? '저장·승인은 완료됐지만 ' : ''}{publicError ? '공개 목록 또는 관련' : '관련'} 조회 갱신에 실패했습니다. 조회만 다시 시도하세요. <button disabled={!active || publicLoading} onClick={retryRelated}>관련 조회 다시 시도</button></p>}
     {view === 'list' && <RestaurantList input={input} onInput={setInput} conditions={conditions} onConditions={next=>{listScroll.current=0;setConditions(next);}}
       {...list} onRetry={list.refresh} onOpen={id=>{listScroll.current=window.scrollY;openDetail(id);}}
       onNew={()=>openRegistration({kind:'new'})} onCandidates={()=>navigate(()=>{listScroll.current=window.scrollY;setVisitedCandidates(true);setView('candidates');})}/>}
@@ -97,7 +119,7 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
       onAdd={id=>openRegistration({kind:'addRelation',restaurantId:id})} onResume={id=>openRegistration({kind:'resumeDraft',draftId:id})}
       onMentionPage={setMentionPage} onDraftPage={setDraftPage}/>}
     {view === 'registration' && <RegistrationForm key={entryKey} username={username} entry={entry} onExpired={onExpired}
-      onPublished={onPublished} onCommitted={refreshRelated} onDetail={id=>{draftUrl(null);openDetail(id);}}
+      onPublished={refreshPublic} onCommitted={refreshRelated} onDetail={id=>{draftUrl(null);openDetail(id);}}
       onClose={()=>setView(backTo)} onGuard={registerGuard}/>}
     {visitedCandidates && <div hidden={view !== 'candidates'}><button className="secondary" onClick={openList}>← 식당 목록으로</button>
       {active && <LegacyCandidateReview key={authGeneration} onPublished={candidateChanged} onFailure={e=>{if(epoch.current===authGeneration)failure(e);}}/>}</div>}

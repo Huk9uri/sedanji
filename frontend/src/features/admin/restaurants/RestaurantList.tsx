@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ApiError, errorMessage } from '../../../api';
 import type { ListConditions, Page, PublicationFilter, RestaurantItem } from './types';
 export function SourceState({ needsSourceReview, sourceCount }: { needsSourceReview: boolean | null; sourceCount: number }) {
@@ -7,9 +8,13 @@ export default function RestaurantList({ input, onInput, conditions, onCondition
   input: string; onInput: (value: string) => void; conditions: ListConditions; onConditions: (value: ListConditions) => void;
   data?: Page<RestaurantItem>; loading: boolean; error?: unknown; onRetry: () => void; onOpen: (id: number) => void; onNew: () => void; onCandidates: () => void;
 }) {
+  const [inputError, setInputError] = useState('');
+  const filtered = conditions.query !== '' || conditions.publication !== 'ALL' || conditions.needsSourceReview;
   return <section aria-label="관리자 식당 목록"><div className="section-heading"><h2>식당 관리</h2><button onClick={onNew}>식당 직접 등록 · 초안 이어쓰기</button></div>
-    <div className="admin-list-tools"><form onSubmit={event => { event.preventDefault(); onConditions({ ...conditions, query: input.trim(), page: 0 }); }}>
-      <label>관리자 식당 검색<input value={input} onChange={event => onInput(event.target.value)} placeholder="식당명, 주소, 셰프"/></label><button>검색</button></form>
+    <div className="admin-list-tools"><form onSubmit={event => { event.preventDefault(); const query=input.trim();
+      if (Array.from(query).length > 100) { setInputError('검색어는 100자 이하여야 합니다.'); return; }
+      setInputError(''); onConditions({ ...conditions, query, page: 0 }); }}>
+      <label>관리자 식당 검색<input value={input} aria-invalid={!!inputError} aria-describedby={inputError ? 'restaurant-search-error' : undefined} onChange={event => { setInputError(''); onInput(event.target.value); }} placeholder="식당명, 주소, 셰프"/></label><button>검색</button>{inputError && <p id="restaurant-search-error" role="alert" className="error">{inputError}</p>}</form>
       <label>공개 관계 필터<select value={conditions.publication} onChange={event => onConditions({ ...conditions, publication: event.target.value as PublicationFilter, page: 0 })}>
         <option value="ALL">전체</option><option value="PUBLISHED">공개 관계 있음</option><option value="NO_PUBLIC_RELATION">공개 관계 없음</option></select></label>
       <label className="admin-check"><input type="checkbox" checked={conditions.needsSourceReview} onChange={event => onConditions({ ...conditions, needsSourceReview: event.target.checked, page: 0 })}/>출처 재확인 필요만</label>
@@ -18,8 +23,8 @@ export default function RestaurantList({ input, onInput, conditions, onCondition
     <p className="field-help">최근 식당 등록순 · 출처 필터 해제는 정상 출처만 조회한다는 의미가 아닙니다.</p>
     {loading && <p role="status">식당 목록을 불러오는 중…</p>}
     {error !== undefined && <p role="alert" className="error">{error instanceof ApiError && error.status === 403 ? '식당 목록 접근 권한이 없습니다.' : errorMessage(error)} <button onClick={onRetry}>목록 다시 시도</button></p>}
-    {data && <><p>전체 {data.totalElements}곳 · {data.page + 1}페이지</p>
-      {!data.items.length && <p className="empty">조건에 맞는 식당이 없습니다.</p>}
+    {data && !loading && error === undefined && <><p>전체 {data.totalElements}곳 · {data.page + 1}페이지</p>
+      {!data.items.length && <p className="empty">{filtered ? '조건에 맞는 식당이 없습니다.' : '등록된 식당이 없습니다.'}</p>}
       <div className="admin-restaurant-list">{data.items.map(item => <article key={item.id} className="admin-restaurant-row">
         <div><button className="admin-name" onClick={() => onOpen(item.id)}>{item.name}</button><p>{item.roadAddress || item.address || '주소 정보 없음'}</p>
           <p>{item.chefs.map(chef => chef.name).join(', ') || '연결 셰프 없음'}{item.hasMoreChefs ? ` 외 ${item.chefCount - item.chefs.length}명` : ''}</p></div>
