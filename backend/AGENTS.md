@@ -11,6 +11,8 @@
 
 ## 트랜잭션과 동시성
 
+- #16 관리자 식당 GET은 `restaurant/AdminRestaurantQueryService`의 readOnly REPEATABLE_READ에서 JDBC count·식당 페이지·선택 ID 집계·셰프 미리보기 또는 관계 페이지를 조립한다. 기존 공개 조회·승인 트랜잭션과 분리한다. 조회마다 외부 API를 호출하거나 관계 검증·공개 상태를 변경하지 않는다.
+
 - 후보 기반 승인은 `registration/RegistrationService.approveFromCandidate`가 트랜잭션을 소유한다. 후보 잠금, 셰프·관리자·장소 검증, 식당 생성·재사용, Mention 저장, 후보 RESOLVED 처리는 함께 커밋·롤백되어야 한다.
 - 직접 승인은 `DirectRegistrationFacade`의 NEVER 경계에서 `RegistrationService.approveDirect`의 트랜잭션을 호출한다. 활성 관리자 행 잠금·세션 장소 검증·식당 재사용·관계·감사·24시간 영수증을 함께 처리한다. UNIQUE 충돌 후 기존 관계 조회는 롤백 완료 뒤 수행한다. 현재 직접 승인은 초안을 생성하지 않는다.
 - CREATE 초안 생성은 장소 토큰 또는 기존 restaurantId 중 하나를 받아 식당 생성·재사용, 초안·감사·24시간 생성 영수증을 함께 저장한다. PATCH는 관리자 → 초안 순서로 잠그고 expectedVersion을 확인하며 누락 필드는 유지·선택 필드 null은 해제한다. 성공한 PATCH는 같은 값이어도 version을 증가시키며 수정 영수증은 만들지 않는다. 저장·수정만으로 Mention을 만들거나 공개하지 않는다. 활성 관리자 간 조회·수정 공유와 기존 장소 정보 보존을 유지한다.
@@ -68,7 +70,7 @@
 
 - PostgreSQL과 Flyway를 사용한다. `ddl-auto=validate`, `open-in-view=false`를 유지하고 update·create로 이관을 대신하지 않는다.
 - 필드·관계·제약 변경 전에 `../docs/DOMAIN_MODEL.md`의 ERD와 데이터 보존·삭제 정책·참조 무결성을 검토한다. FK·인덱스·NOT NULL·UNIQUE를 필요한 범위에 설계한다.
-- 적용된 V1~V3를 임의 수정하지 않고 후속 migration으로 변경한다. Kakao Place ID·YouTube Video ID와 관계 유일성, 좌표·상태 제약을 보존한다.
+- 기존 V1~V4를 임의 수정하지 않고 필요한 경우 후속 migration으로 변경한다. V4는 Video의 UNCHECKED/AVAILABLE/REVIEW_REQUIRED·확인 시각·UNAVAILABLE 원인 조합을 제약하며 실제 DB 적용 상태는 별도 확인한다. Kakao Place ID·YouTube Video ID와 관계 유일성, 좌표·상태 제약을 보존한다.
 - V2의 기존 승인 자료 보호, V3의 중복 관계 충돌 중단 조건을 우회하지 않는다. 기존 근거·legacy 기록·감사 이력은 자동 삭제·병합하지 않는다.
 - 스키마 파일 존재·과거 적용 기록과 실제 대상 DB 상태를 구분한다. 개발 DB 이관은 백업·충돌·적용 대상을 확인하고 승인된 범위에서만 수행한다. `migrateDevelopmentDatabase`는 검증 전용 명령이 아니라 DB 변경 명령이다.
 
