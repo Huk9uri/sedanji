@@ -279,3 +279,47 @@ it('discards a late detail authentication error after changing selection',async(
   expect(expired).not.toHaveBeenCalled();expect(screen.queryByText('old session')).not.toBeInTheDocument();
   expect(screen.getByRole('heading',{name:'골목밥'})).toBeInTheDocument();
 });
+it('opens relation, official-place and chef correction history from the selected detail without writing',async()=>{
+  api.mockImplementation(async path=>{
+    if(path.endsWith('/history?page=0&size=20'))return page([]);
+    if(path.endsWith('/corrections?page=0&size=20')||path.endsWith('/revisions?page=0&size=20'))return {...page([]),target:{id:101,version:0,name:'현재 표시'}};
+    return defaults(path);
+  });
+  mount();await openDetail();
+  for(const [button,path] of [
+    ['관계 #101 정정 · 이력','/admin/mentions/101/corrections?page=0&size=20'],
+    ['식당 공식 정보 정정 · 이력','/admin/restaurants/10/revisions?page=0&size=20'],
+    ['셰프 #1 이름 정정 · 이력','/admin/chefs/1/revisions?page=0&size=20'],
+  ]) {
+    fireEvent.click(screen.getByRole('button',{name:button}));await screen.findByRole('heading',{name:'정보 정정 · 변경 이력'});
+    await waitFor(()=>expect(api).toHaveBeenCalledWith(path,expect.objectContaining({signal:expect.any(AbortSignal)})));
+    await screen.findByRole('button',{name:'새 정정안 작성'});
+    fireEvent.click(screen.getByRole('button',{name:'← 식당 상세로'}));await screen.findByRole('heading',{name:'한빛국수'});
+  }
+  expect(api.mock.calls.filter(([,options])=>options?.method==='POST'||options?.method==='PATCH')).toHaveLength(0);
+});
+it('refreshes public data once after reapproval and reads the changed hidden detail and list on return',async()=>{
+  let applied=false;const published=vi.fn(async()=>{});
+  const proposed={name:'정정된 식당',roadAddress:place.roadAddress,address:null,longitude:127,latitude:37,placeUrl:place.placeUrl};
+  const revision={id:401,targetId:10,kind:'RESTAURANT',version:0,baseVersion:0,status:'DRAFT',changeReason:'공식 표기 갱신',updatedAt:place.createdAt,baseSnapshot:place,currentSnapshot:place,proposedValues:proposed,changedFields:['name'],referenceSnapshot:{},currentReferences:{},baseConflict:false,referenceConflict:false,impactHash:'a'.repeat(64),impact:page([]),publicImpactCount:1};
+  api.mockImplementation(async(path,options)=>{
+    if(path==='/admin/restaurant-revisions/401/approve'){applied=true;return {...revision,status:'APPLIED',version:1,targetVersion:1};}
+    if(path==='/admin/restaurant-revisions/401?impactPage=0&impactSize=20')return revision;
+    if(path==='/admin/restaurants/10/revisions?page=0&size=20')return {...page(applied?[]:[revision]),target:applied?{...place,name:proposed.name,version:1}:place};
+    if(path==='/admin/restaurants/10/history?page=0&size=20')return page([]);
+    if(applied&&path.startsWith('/admin/restaurants/10?'))return {...detail,restaurant:{...place,name:proposed.name,version:1},summary:{...item,name:proposed.name}};
+    if(applied&&path.startsWith('/admin/restaurants?'))return page([{...item,name:proposed.name}]);
+    return defaults(path);
+  });
+  render(<AdminWorkspace username="admin" authGeneration={1} onExpired={vi.fn()} onPublished={published} onGuard={vi.fn()}/>);
+  await openDetail();fireEvent.click(screen.getByRole('button',{name:'식당 공식 정보 정정 · 이력'}));
+  fireEvent.click(await screen.findByRole('button',{name:/정정안 #401 · DRAFT/}));await screen.findByRole('table');
+  fireEvent.click(screen.getByRole('button',{name:'영향 확인 · 재승인'}));await screen.findByText(/APPLIED · 적용 완료/);
+  await waitFor(()=>expect(published).toHaveBeenCalledTimes(1));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'최신 정정안 조회 · 입력 유지'})).toBeEnabled());
+  const detailCalls=()=>api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10?'));
+  expect(detailCalls()).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'← 식당 상세로'}));await screen.findByRole('heading',{name:'정정된 식당'});expect(detailCalls()).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));await screen.findByRole('button',{name:'정정된 식당'});
+  expect(api.mock.calls.filter(([path,options])=>path==='/admin/restaurant-revisions/401/approve'&&options?.method==='POST')).toHaveLength(1);
+});

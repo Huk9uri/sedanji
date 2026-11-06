@@ -14,6 +14,7 @@ public class RestaurantService {
     public RestaurantService(RestaurantRepository restaurants, MentionService mentions) {
         this.restaurants = restaurants; this.mentions = mentions;
     }
+    @Transactional(readOnly=true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public List<Restaurant> findPublishedRestaurants() {
         return restaurants.findPublished().stream().map(restaurant -> restaurant.toDto(
             mentions.findPublishedSources(restaurant.getId()))).toList();

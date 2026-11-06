@@ -58,6 +58,7 @@ class MentionDraftApprovalIntegrationTest {
     @Autowired MockMvc mvc;
     @MockitoBean ExternalApis apis;
     @MockitoSpyBean MentionRepository mentions;
+    @MockitoSpyBean kr.sedanji.correction.CorrectionCoordinator coordinator;
     @MockitoSpyBean MentionDraftRepository draftRepository;
     @MockitoSpyBean AdminAuditEventRepository audits;
     @MockitoSpyBean AdminRequestReceiptRepository receipts;
@@ -202,15 +203,15 @@ class MentionDraftApprovalIntegrationTest {
         } finally { pool.shutdownNow(); }
     }
 
-    @Test void controlledUniqueRaceQueriesOnlyAfterRollbackAndLeavesLoserDraftUntouched() throws Exception {
+    @Test void coordinatedApprovalsSerializeAndLeaveLoserDraftUntouched() throws Exception {
         var first = prepare(); var second = copy(first); String a = actor(), b = actor();
         var barrier = new CyclicBarrier(2); var inTransaction = new CopyOnWriteArrayList<Boolean>();
+        doAnswer(inv -> { barrier.await(10, TimeUnit.SECONDS); return inv.callRealMethod(); }).when(org.springframework.test.util.AopTestUtils.<kr.sedanji.correction.CorrectionCoordinator>getUltimateTargetObject(coordinator)).lock();
         doAnswer(inv -> {
             Optional<Long> result = em.createQuery("select m.id from MentionEntity m where m.chef.id=:chef and m.restaurant.id=:restaurant and m.video.id=:video", Long.class)
                 .setParameter("chef", first.chefId()).setParameter("restaurant", first.restaurant().id()).setParameter("video", first.videoId())
                 .getResultList().stream().findFirst();
             boolean active = TransactionSynchronizationManager.isActualTransactionActive(); inTransaction.add(active);
-            if (active && result.isEmpty()) barrier.await(10, TimeUnit.SECONDS);
             return result;
         }).when(mentions).findStoredRelationshipId(first.chefId(), first.restaurant().id(), first.videoId());
         var pool = Executors.newFixedThreadPool(2);
@@ -219,12 +220,32 @@ class MentionDraftApprovalIntegrationTest {
             Callable<String> y = () -> { try { approve(second, key(), b); return "OK"; } catch (MentionDraftApprovalException ex) { return ex.code(); } };
             var fx = pool.submit(x); var fy = pool.submit(y);
             assertThat(List.of(fx.get(20, TimeUnit.SECONDS), fy.get(20, TimeUnit.SECONDS))).containsExactlyInAnyOrder("OK", "DUPLICATE_RELATION");
-            assertThat(inTransaction).containsExactly(true, true, false);
+            assertThat(inTransaction).containsExactly(true, true);
             assertThat(db.queryForObject("select count(*) from mentions where chef_id=? and restaurant_id=? and video_id=?", Long.class,
                 first.chefId(), first.restaurant().id(), first.videoId())).isEqualTo(1);
             assertThat(List.of(row("mention_drafts", first.id()).get("status"), row("mention_drafts", second.id()).get("status")))
                 .containsExactlyInAnyOrder("APPLIED", "DRAFT");
         } finally { pool.shutdownNow(); }
+    }
+
+    @Test void nonParticipatingWriterStillTranslatesUniqueOnlyAfterRollback() throws Exception {
+        var d=prepare();String user=actor(),externalReviewer=actor();long reviewer=db.queryForObject("select id from admin_users where username=?",Long.class,externalReviewer);
+        var before=row("mention_drafts",d.id());long[] counts=counts();var queryTransactions=new CopyOnWriteArrayList<Boolean>();
+        doAnswer(inv->{queryTransactions.add(TransactionSynchronizationManager.isActualTransactionActive());return em.createQuery("select m.id from MentionEntity m where m.chef.id=:chef and m.restaurant.id=:restaurant and m.video.id=:video",Long.class).setParameter("chef",d.chefId()).setParameter("restaurant",d.restaurant().id()).setParameter("video",d.videoId()).getResultList().stream().findFirst();})
+            .when(mentions).findStoredRelationshipId(d.chefId(),d.restaurant().id(),d.videoId());
+        doAnswer(inv->{
+            // An out-of-band writer deliberately does not join the advisory protocol.
+            // This preserves the DB UNIQUE/facade fallback test without bypassing the production lock.
+            try(var connection=java.sql.DriverManager.getConnection(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword());
+                var insert=connection.prepareStatement("insert into mentions(chef_id,restaurant_id,video_id,mention_type,verification_status,publication_status,reviewed_by,reviewed_at) values (?,?,?,'VISITED','APPROVED','PUBLISHED',?,now())")) {
+                insert.setLong(1,d.chefId());insert.setLong(2,d.restaurant().id());insert.setString(3,d.videoId());insert.setLong(4,reviewer);insert.executeUpdate();
+            }
+            try{Object entity=inv.getArgument(0);em.persist(entity);em.flush();return entity;}
+            catch(RuntimeException ex){var translated=new org.springframework.orm.jpa.vendor.HibernateJpaDialect().translateExceptionIfPossible(ex);throw translated==null?ex:translated;}
+        }).when(mentions).saveAndFlush(any());
+        assertThatThrownBy(()->approve(d,key(),user)).isInstanceOfSatisfying(MentionDraftApprovalException.class,ex->assertThat(ex.code()).isEqualTo("DUPLICATE_RELATION"));
+        assertThat(queryTransactions).containsExactly(true,false);assertThat(row("mention_drafts",d.id())).isEqualTo(before);
+        assertThat(count("mentions")).isEqualTo(counts[1]+1);assertThat(count("admin_audit_events")).isEqualTo(counts[2]);assertThat(count("admin_request_receipts")).isEqualTo(counts[3]);
     }
 
     @Test void strictHttpAndSecurityAndInactiveReplayNeverWrite() throws Exception {
@@ -313,6 +334,9 @@ class MentionDraftApprovalIntegrationTest {
                 loserReachedInsert.countDown();
                 if (!winnerCommitted.await(15, TimeUnit.SECONDS)) throw new IllegalStateException("winner timeout");
             }
+            return inv.callRealMethod();
+        }).when(org.springframework.test.util.AopTestUtils.<kr.sedanji.correction.CorrectionCoordinator>getUltimateTargetObject(coordinator)).lock();
+        doAnswer(inv -> {
             Object entity = inv.getArgument(0);
             try { em.persist(entity); em.flush(); return entity; }
             catch (RuntimeException ex) {
@@ -418,12 +442,11 @@ class MentionDraftApprovalIntegrationTest {
         long candidate = candidates.findCandidates().stream().filter(v -> v.videoId().equals(d.videoId())).findFirst().orElseThrow().id();
         matching.search(candidate, "식당");
         long otherChef = chefs.createChef("다른 셰프").id(); var gate = new CyclicBarrier(3);
-        doAnswer(inv -> { gate.await(10, TimeUnit.SECONDS); return inv.callRealMethod(); }).when(restaurants).getOrCreate(argThat(p -> p.id().equals(placeId)));
         var pool = Executors.newFixedThreadPool(3);
         try {
-            var stored = pool.submit(() -> drafts.create(MentionDraftInput.create(mapper.createObjectNode().put("placeSelectionToken", ta)), key(), "admin", sa));
-            var approved = pool.submit(() -> direct.approve(new DirectRegistrationRequest(tb, otherChef, d.videoId(), kr.sedanji.mention.MentionType.VISITED, null, null), key(), b, sb));
-            var candidateApproved = pool.submit(() -> { registrations.approveFromCandidate(candidate, d.chefId(), placeId,
+            var stored = pool.submit(() -> { gate.await(10, TimeUnit.SECONDS); return drafts.create(MentionDraftInput.create(mapper.createObjectNode().put("placeSelectionToken", ta)), key(), "admin", sa); });
+            var approved = pool.submit(() -> { gate.await(10, TimeUnit.SECONDS); return direct.approve(new DirectRegistrationRequest(tb, otherChef, d.videoId(), kr.sedanji.mention.MentionType.VISITED, null, null), key(), b, sb); });
+            var candidateApproved = pool.submit(() -> { gate.await(10, TimeUnit.SECONDS); registrations.approveFromCandidate(candidate, d.chefId(), placeId,
                 kr.sedanji.mention.MentionType.VISITED, null, "설명", null, c); return true; });
             var created = stored.get(20, TimeUnit.SECONDS); var directResult = approved.get(20, TimeUnit.SECONDS);
             assertThat(candidateApproved.get(20, TimeUnit.SECONDS)).isTrue();

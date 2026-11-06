@@ -2,29 +2,32 @@ import { ApiError, errorMessage } from '../../../api';
 import { typeLabels } from '../registration/RelationshipFields';
 import { SourceState } from './RestaurantList';
 import type { Draft, Page, RestaurantDetail as Detail } from './types';
+import type { CorrectionTarget } from '../corrections/types';
 export function sourceLink(videoId: string, seconds: number | null) {
   return `https://www.youtube.com/watch?v=${videoId}${seconds === null ? '' : `&t=${seconds}s`}`;
 }
 export function sourceTime(seconds: number | null) {
   return seconds === null ? '시점 미확인' : `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
 }
-export default function RestaurantDetail({ data, loading, error, drafts, draftsLoading, draftsError, onRetry, onDraftRetry, onBack, onAdd, onResume, onMentionPage, onDraftPage }: {
+export default function RestaurantDetail({ data, loading, error, drafts, draftsLoading, draftsError, onRetry, onDraftRetry, onBack, onAdd, onResume, onMentionPage, onDraftPage, onCorrection }: {
   data?: Detail; loading: boolean; error?: unknown; drafts?: Page<Draft>; draftsLoading: boolean; draftsError?: unknown;
   onRetry: () => void; onDraftRetry: () => void; onBack: () => void; onAdd: (id: number) => void; onResume: (id: number) => void;
   onMentionPage: (page: number) => void; onDraftPage: (page: number) => void;
+  onCorrection?: (target: CorrectionTarget) => void;
 }) {
   const notFound = error instanceof ApiError && error.status === 404;
   return <section aria-label="관리자 식당 상세"><button className="secondary" onClick={onBack}>← 목록으로</button>
     {loading && <p role="status">식당 상세를 불러오는 중…</p>}
     {error !== undefined && <p role="alert" className="error">{notFound ? '식당을 찾을 수 없습니다. 목록으로 돌아가세요.' : error instanceof ApiError && error.status === 403 ? '식당 상세 접근 권한이 없습니다.' : errorMessage(error)}
       {!notFound && <button onClick={onRetry}>상세 다시 시도</button>}</p>}
-    {data && <><h2>{data.restaurant.name}</h2><article className="admin-place-info"><div><p>도로명 주소: {data.restaurant.roadAddress ?? '없음'}</p><p>지번 주소: {data.restaurant.address ?? '없음'}</p></div>
+    {data && <><h2>{data.restaurant.name}</h2>{onCorrection&&<button onClick={()=>onCorrection({kind:'RESTAURANT',id:data.restaurant.id})}>식당 공식 정보 정정 · 이력</button>}<article className="admin-place-info"><div><p>도로명 주소: {data.restaurant.roadAddress ?? '없음'}</p><p>지번 주소: {data.restaurant.address ?? '없음'}</p></div>
       <div>Kakao Place ID <strong>{data.restaurant.kakaoPlaceId}</strong></div><a href={data.restaurant.placeUrl} target="_blank" rel="noreferrer">카카오맵에서 보기 ↗</a></article>
       <div className="admin-summary"><span className="admin-badge">{data.summary.hasPublicRelation ? '공개 관계 있음' : '공개 관계 없음'}</span>
         <span>공개 관계 {data.summary.publicRelationCount} / 전체 관계 {data.summary.relationCount}</span><SourceState needsSourceReview={data.summary.needsSourceReview} sourceCount={data.summary.sourceCount}/></div>
       <div className="section-heading"><h3>셰프·영상 관계</h3><button onClick={() => onAdd(data.restaurant.id)}>관계 추가</button></div>
       {!data.mentions.items.length && <p className="empty">이 페이지에 실제 관계가 없습니다. 임시 저장 초안은 관계에 포함하지 않습니다.</p>}
       {data.mentions.items.map(mention => <article className="admin-relation" key={mention.id} aria-label={`관계 ${mention.id}`}>
+        {onCorrection&&<div><button onClick={()=>onCorrection({kind:'MENTION',id:mention.id})}>관계 #{mention.id} {mention.verificationStatus==='APPROVED'?'정정 · 이력':'이력'}</button><button onClick={()=>onCorrection({kind:'CHEF',id:mention.chef.id})}>셰프 #{mention.chef.id} 이름 정정 · 이력</button></div>}
         <div className="admin-relation-heading"><h4>{mention.chef.name} <small>셰프 ID {mention.chef.id} · 관계 ID {mention.id}</small></h4>
           <span className="admin-badge">{mention.mentionType === null ? '유형 미확인' : typeLabels[mention.mentionType]}</span>
           <span className="admin-badge">검증: {mention.verificationStatus}</span><span className="admin-badge">공개: {mention.publicationStatus}</span></div>

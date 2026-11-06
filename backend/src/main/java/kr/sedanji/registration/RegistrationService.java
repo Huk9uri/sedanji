@@ -29,6 +29,7 @@ public class RegistrationService {
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     private final MentionDraftRepository drafts;
     private final kr.sedanji.restaurant.RestaurantRepository restaurantRepository;
+    private final kr.sedanji.correction.CorrectionCoordinator coordinator;
 
     public RegistrationService(ChefService chefs, MentionService mentions, RestaurantService restaurants,
                                RestaurantCandidateService candidates, AdminUserRepository admins,
@@ -36,21 +37,24 @@ public class RegistrationService {
                                kr.sedanji.video.VideoRepository videos, kr.sedanji.mention.MentionRepository mentionRepository,
                                AdminAuditEventRepository audits, AdminRequestReceiptRepository receipts,
                                com.fasterxml.jackson.databind.ObjectMapper mapper, MentionDraftRepository drafts,
-                               kr.sedanji.restaurant.RestaurantRepository restaurantRepository) {
+                               kr.sedanji.restaurant.RestaurantRepository restaurantRepository,
+                               kr.sedanji.correction.CorrectionCoordinator coordinator) {
         this.chefs = chefs; this.mentions = mentions; this.restaurants = restaurants;
         this.candidates = candidates; this.admins = admins;
         this.selections = selections; this.chefRepository = chefRepository; this.videos = videos;
         this.mentionRepository = mentionRepository; this.audits = audits; this.receipts = receipts; this.mapper = mapper;
         this.drafts = drafts; this.restaurantRepository = restaurantRepository;
+        this.coordinator = coordinator;
     }
     @Transactional
     public void approveFromCandidate(long candidateId, long chefId, String placeId, MentionType type,
                                      Integer timestamp, String evidence, String note, String reviewer) {
         mentions.validateApproval(type, timestamp, evidence);
+        var admin = admins.findForUpdate(reviewer).filter(AdminUserEntity::isEnabled)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "활성 관리자만 승인할 수 있습니다."));
+        coordinator.lock();
         var candidate = candidates.getForUpdate(candidateId);
         var chef = chefs.getRequired(chefId);
-        var admin = admins.findByUsername(reviewer).filter(AdminUserEntity::isEnabled)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "활성 관리자만 승인할 수 있습니다."));
         var place = candidates.selectedPlace(candidateId, placeId);
         var restaurant = restaurants.getOrCreate(place);
         mentions.approve(chef, restaurant, candidate.getImportJob().getVideo(), candidate, type, timestamp, evidence, note, admin);
@@ -75,6 +79,7 @@ public class RegistrationService {
             catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("성공 영수증 형식 오류"); }
         }
         if (receipt.isPresent()) { receipts.delete(receipt.get()); receipts.flush(); }
+        coordinator.lock();
         //	토큰에서 서버 보관 장소 복원
         var place = selections.resolve(request.placeSelectionToken(), reviewer, session);
         attempt.placeId = place.id();
@@ -110,6 +115,7 @@ public class RegistrationService {
             catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("승인 영수증 형식 오류"); }
         }
         if (receipt.isPresent()) { receipts.delete(receipt.get()); receipts.flush(); }
+        coordinator.lock();
         var draft = drafts.findForUpdate(id).filter(MentionDraftEntity::isCreate).orElseThrow(MentionDraftApprovalException::missing);
         if (!draft.isEditable())
             throw new MentionDraftApprovalException(409, "DRAFT_ALREADY_APPLIED", "이미 적용된 초안입니다.",

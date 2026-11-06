@@ -9,9 +9,11 @@ import { initialConditions } from './restaurants/types';
 import { useRestaurantList } from './restaurants/useRestaurantList';
 import { useRestaurantDetail } from './restaurants/useRestaurantDetail';
 import LegacyCandidateReview from './LegacyCandidateReview';
+import CorrectionPanel from './corrections/CorrectionPanel';
+import type { CorrectionTarget, Revision } from './corrections/types';
 import './admin-workspace.css';
 export type LeaveGuard = (proceed: () => void) => void;
-type View = 'list' | 'detail' | 'registration' | 'candidates';
+type View = 'list' | 'detail' | 'registration' | 'candidates' | 'correction';
 export default function AdminWorkspace({ username, authGeneration, onExpired, onPublished, onGuard }: {
   username: string | undefined; authGeneration: number; onExpired: () => void;
   onPublished: () => Promise<void>; onGuard: (guard: LeaveGuard | null) => void;
@@ -31,6 +33,8 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   const [publicError, setPublicError] = useState(false);
   const [publicLoading, setPublicLoading] = useState(false);
   const [lastCommit, setLastCommit] = useState<RegistrationCommitted | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget>();
+  const [correctionNotice, setCorrectionNotice] = useState('');
   const guard = useRef<LeaveGuard | null>(null);
   const listScroll = useRef(0);
   const owner = useRef(username);
@@ -47,7 +51,7 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
     if (!username) return;
     if (owner.current && owner.current !== username) {
       setInput(''); setConditions(initialConditions()); setSelected(null); setMentionPage(0); setDraftPage(0);
-      setView('list'); setEntry({ kind:'new' }); setEntryKey(n=>n+1); setLastCommit(null); setVisitedCandidates(false); draftUrl(null); listScroll.current=0;
+      setView('list'); setEntry({ kind:'new' }); setEntryKey(n=>n+1); setLastCommit(null); setCorrectionTarget(undefined); setCorrectionNotice(''); setVisitedCandidates(false); draftUrl(null); listScroll.current=0;
     }
     owner.current=username;
   }, [username, authGeneration]);
@@ -93,6 +97,13 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
     // Candidate writes have already succeeded; read failures cannot undo them.
     try { await refreshPublic(); } catch { /* The read error is displayed below. */ }
   }
+  async function correctionApproved(result: Revision) {
+    if (!auth.current || epoch.current !== authGeneration) return;
+    setCorrectionNotice(`정정 재승인 완료 · 대상 #${result.targetId} · 정정안 #${result.id}`);
+    setRevision(n=>n+1);setMentionPage(0);setDraftPage(0);
+    // Hidden old/new restaurant details and the list reload on entry.
+    await refreshPublic();
+  }
   const relatedError = !!username && lastCommit !== null && (view === 'list' ? list.error !== undefined :
     view === 'detail' && (detail.detail.error !== undefined || detail.drafts.error !== undefined));
   function retryRelated() {
@@ -109,6 +120,7 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
     <button disabled title="준비 중">제보 관리 · 준비 중</button><button className="selected" onClick={openList}>식당 관리</button>
   </nav></aside><div className="admin-workspace-content">
     {active && lastCommit && <p role="status">작업 완료 · 식당 #{lastCommit.restaurantId}{lastCommit.previousRestaurantId !== undefined ? ` · 이전 식당 #${lastCommit.previousRestaurantId}` : ''}{lastCommit.draftId !== undefined ? ` · 초안 #${lastCommit.draftId}` : ''}{lastCommit.mentionId !== undefined ? ` · 관계 #${lastCommit.mentionId}` : ''}</p>}
+    {active&&correctionNotice&&<p role="status">{correctionNotice}</p>}
     {(relatedError || (active && publicError)) && <p role="alert" className="error">{lastCommit ? '저장·승인은 완료됐지만 ' : ''}{publicError ? '공개 목록 또는 관련' : '관련'} 조회 갱신에 실패했습니다. 조회만 다시 시도하세요. <button disabled={!active || publicLoading} onClick={retryRelated}>관련 조회 다시 시도</button></p>}
     {view === 'list' && <RestaurantList input={input} onInput={setInput} conditions={conditions} onConditions={next=>{listScroll.current=0;setConditions(next);}}
       {...list} onRetry={list.refresh} onOpen={id=>{listScroll.current=window.scrollY;openDetail(id);}}
@@ -117,7 +129,9 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
       drafts={detail.drafts.data} draftsLoading={detail.drafts.loading} draftsError={detail.drafts.error}
       onRetry={detail.detail.refresh} onDraftRetry={detail.drafts.refresh} onBack={openList}
       onAdd={id=>openRegistration({kind:'addRelation',restaurantId:id})} onResume={id=>openRegistration({kind:'resumeDraft',draftId:id})}
-      onMentionPage={setMentionPage} onDraftPage={setDraftPage}/>}
+      onMentionPage={setMentionPage} onDraftPage={setDraftPage} onCorrection={target=>navigate(()=>{setCorrectionTarget(target);setView('correction');})}/>}
+    {view==='correction'&&correctionTarget&&<CorrectionPanel key={`${correctionTarget.kind}:${correctionTarget.id}`} target={correctionTarget} username={username} authGeneration={authGeneration}
+      onExpired={onExpired} onGuard={registerGuard} onBack={()=>setView('detail')} onApproved={correctionApproved}/>}
     {view === 'registration' && <RegistrationForm key={entryKey} username={username} entry={entry} onExpired={onExpired}
       onPublished={refreshPublic} onCommitted={refreshRelated} onDetail={id=>{draftUrl(null);openDetail(id);}}
       onClose={()=>setView(backTo)} onGuard={registerGuard}/>}

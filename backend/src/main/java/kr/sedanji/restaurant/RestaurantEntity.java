@@ -32,5 +32,13 @@ public class RestaurantEntity {
     }
     public Long getId() { return id; }
     public String getName() { return name; }
+    public void correctPlace(Place place) {
+        if (!kakaoPlaceId.equals(place.id()) || place.name() == null || place.name().isBlank()
+            || !Double.isFinite(place.longitude()) || !Double.isFinite(place.latitude())
+            || Math.abs(place.longitude()) > 180 || Math.abs(place.latitude()) > 90)
+            throw new IllegalArgumentException("같은 Kakao 장소의 공식 정보를 선택하세요.");
+        name=place.name(); roadAddress=place.roadAddress(); address=place.address();
+        longitude=place.longitude(); latitude=place.latitude(); placeUrl=place.placeUrl();
+    }
     public Restaurant toDto(List<Source> mentions) { return new Restaurant(id, kakaoPlaceId, name, roadAddress, address, longitude, latitude, placeUrl, mentions); }
 }

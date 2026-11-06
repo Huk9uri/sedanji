@@ -1,6 +1,45 @@
 # 관리자 식당 관리 API 계약
 
-갱신일: 2026-11-06. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+갱신일: 2026-11-07. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
+
+## #19 정정·재승인·이력 — 승인된 작업 트리
+
+기준 `feat/AdminPage` / `7f36acd3873be4f9a3628f75b972fb110b2c15fa`. 시작 변경 없음. Handoff v2 D1~D9 및 전체 구현 승인을 따르며 기존 #18 후속 커밋·CREATE API/DTO·공개 DTO를 보존한다. 최초 작성 당시에는 실행 제한으로 NOT RUN이었다. 2026-11-07 사용자 실행 승인 후 Backend 컴파일·199개 테스트(실패/skip 0)·bootJar, Frontend 타입 검사·97개 테스트(13개 파일)·빌드가 각각 PASS/0이다. 실제 개발/운영 DB 적용·외부 API·브라우저 검증은 하지 않았다. 아래 과거 PASS는 #19 검증 근거가 아니다.
+
+모든 경로는 `/api/admin` 아래이며 세션 ADMIN·활성 관리자 및 쓰기 CSRF를 요구한다. 정정안 저장/PATCH/rebase는 공개본을 변경하지 않는다. APPROVED 관계만 정정하고 PUBLISHED/SUSPENDED는 유지한다. candidateId·evidence·원본 후보 근거/영상 정보를 보존하며 현재 영상 변경으로 원본 근거를 덮어쓰지 않는다. Chef는 동일인 표기만, Restaurant은 같은 Kakao ID의 공식 이름·두 주소·좌표·URL 전체만 적용한다. 수동 override·병합·삭제·새 공개 제어는 없다.
+
+| 메서드·경로 | 입력·결과 |
+| --- | --- |
+| POST `/mentions/{id}/corrections` | `{expectedVersion, changes, changeReason}`, Idempotency-Key, 201 |
+| GET `/mentions/{id}/corrections` | `status=DRAFT 또는 APPLIED` 선택·`page=0&size=20`, 최대 100 |
+| GET `/mention-corrections/{id}` | 기준·현재·제안·충돌·영향, `impactPage=0&impactSize=20`, 최대 100 |
+| PATCH `/mention-corrections/{id}` | `{expectedVersion, changes?, changeReason?}` |
+| POST `/mention-corrections/{id}/rebase` | `{expectedVersion, expectedBaseVersion}` |
+| POST `/mention-corrections/{id}/approve` | `{expectedVersion, expectedImpactHash}`, Idempotency-Key, 200 |
+| POST `/restaurants/{id}/revisions` | `{expectedVersion, placeSelectionToken, changeReason}`, Idempotency-Key, 201 |
+| POST `/chefs/{id}/revisions` | `{expectedVersion, proposedName, changeReason}`, Idempotency-Key, 201 |
+| GET `/restaurants/{id}/revisions`, `/chefs/{id}/revisions` | 상태·페이지 목록 |
+| GET `/restaurant-revisions/{id}`, `/chef-revisions/{id}` | 관계 정정과 같은 비교·영향 응답 |
+| PATCH `/restaurant-revisions/{id}` | `{expectedVersion, placeSelectionToken?, changeReason?}` |
+| PATCH `/chef-revisions/{id}` | `{expectedVersion, proposedName?, changeReason?}` |
+| POST `/{restaurant-revisions 또는 chef-revisions}/{id}/rebase` | 자체·최신 원본 version |
+| POST `/{restaurant-revisions 또는 chef-revisions}/{id}/approve` | 자체 version·영향 hash·멱등키 |
+| GET `/{mentions 또는 restaurants 또는 chefs}/{id}/history` | `page=0&size=20`, 최대 100; 처리 당시 스냅샷 |
+
+Mention changes는 chefId·restaurantId·videoId·mentionType·timestampSeconds·verificationNote만 허용하며 앞 4개는 null 불가·기존 자료 ID를 사용한다. PATCH 누락은 유지, 선택 시점/메모 null은 해제다. 시점은 null 또는 0~2147483647 정수이고 0은 확인된 0초다. 메모는 trim 후 빈 값 null·최대 2,000자, 사유는 trim 후 필수·2,000자, Chef 이름은 trim 후 필수·100자다. 정수/enum/필드를 엄격히 검증하고 문자열 숫자·실수·미지원/중복 query를 거부한다. 목록 정렬은 updatedAt DESC,id DESC, 이력은 occurredAt DESC,id DESC다. 빈 목록 200·없는 대상 404·불법 입력 400이다.
+
+목록 응답은 `{target,items,totalElements,page,size,hasNext}`이며 target은 현재 대상 스냅샷, items는 id·version·baseVersion·status·changeReason·updatedAt 요약이다. 단건/생성/PATCH/rebase/승인 응답은 id·targetId·kind(MENTION/RESTAURANT/CHEF)·version·baseVersion·status·baseSnapshot·currentSnapshot·proposedValues·changedFields·referenceSnapshot·currentReferences·baseConflict·referenceConflict·changeReason·작성/수정/적용 관리자 ID와 시각·impactHash·impact 페이지·publicImpactCount를 제공한다. 승인에는 targetVersion, 관계 정정에는 restaurantId·previousRestaurantId·mentionId도 제공한다.
+
+영향 hash는 페이지와 무관한 전체 실제 관계를 ID순 정렬한 version·검증/공개 상태·표시값과 대상·제안·참조의 canonical JSON SHA-256이다. Chef/Restaurant은 연결 관계 전체, Mention은 대상 및 이전/새 식당·셰프 연결 관계를 포함한다. 공개 영향은 APPROVED AND PUBLISHED만 센다. 참조 Restaurant/Chef version과 저장된 Video 제목·채널·게시 시각 fingerprint를 보존한다(Video에 가짜 version은 추가하지 않음). 참조 충돌을 PATCH로 숨기지 않으며 명시적 rebase로 기준을 수용한다. rebase는 변경 필드 제안을 유지하고 나머지는 최신 값으로 갱신하며 이전 기준·제안을 감사한다.
+
+오류는 STALE_VERSION, STALE_BASE_VERSION(참조 변경 포함), IMPACT_CHANGED, DUPLICATE_RELATION, OPEN_REVISION_EXISTS, REVISION_ALREADY_APPLIED, IDEMPOTENCY_CONFLICT(409), NO_CHANGES(400), PLACE_ID_MISMATCH(400), 기존 장소 토큰 오류(410)로 구분한다. 대상별 DRAFT 1개, APPLIED 읽기 전용이며 이후 새 정정이 가능하다. 본인 작성 건 승인도 허용한다. 생성/승인은 동일 관리자·키·경로·본문의 유효 성공 영수증만 24시간 재생한다. PATCH/rebase는 version만 보호하고 영수증·자동 재전송은 없다.
+
+Restaurant 토큰은 저장/PATCH에서 세션·관리자·만료·동일 Kakao ID를 확인한 뒤 폐기한다. DB/감사에 토큰을 저장하지 않으며 승인에서는 저장 스냅샷만 사용한다. 승인 트랜잭션은 관리자 행 → 영수증 → 공통 transaction advisory lock(190019) → 정정안 → 대상 행 순서다. 후보는 관리자 → 공통 잠금 → 후보이며 직접·CREATE 승인도 같은 잠금에 참여한다. 대상 허용 필드·version·APPLIED·감사·영수증은 함께 커밋/롤백한다. UNIQUE/동시성 오류는 proxy 롤백 후 facade에서 변환한다. 잠금의 운영 처리량·락 대기는 미검증이다. 공개 다중 조회는 read-only REPEATABLE_READ로 한 응답의 전후 혼합을 방지한다.
+
+이력 응답은 `{items,totalElements,page,size,hasNext}`이며 각 항목은 id·actorId·action·reason·occurredAt·beforeValue·afterValue다. afterValue에는 처리 당시 actorUsername·revision·target 스냅샷을 저장한다. 과거 표시값을 현재 Entity 이름으로 재구성하지 않으며 append-only trigger·과거 감사는 보존한다. V5는 기존 스냅샷 없는 CORRECTION을 백필하지 않는다. 저장된 제안의 필수 참조를 명시적으로 보완하고 rebase하기 전에는 승인할 수 없다.
+
+관리자 상세에서 정정/이어쓰기·이력으로 진입한다. 미승인 관계는 이력만 조회한다. 기준·현재·제안·충돌·영향 페이지를 표시하고 입력·단일 이탈 가드·인증 세대 폐기를 보존한다. 저장은 정정안/이력만, 재승인은 목록·이전/새 상세·정정안·이력·공개 조회를 갱신/무효화한다. 조회 실패는 쓰기 성공과 분리하고 GET만 재시도한다. 불명확한 생성/승인은 동일 키·본문으로 확인하고 PATCH/rebase는 최신본을 비교한다.
+
 
 ## #18 관리자 식당 목록·상세 — 병합된 구현과 후속 보완
 
