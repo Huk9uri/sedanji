@@ -1,6 +1,25 @@
 # 관리자 식당 관리 1단계 구현 계획
 
-작성일: 2026-11-02. 현황 갱신일: 2026-11-06. 상태: #16 병합된 구현과 #13~#15 과거 기록 및 후속 계획을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
+작성일: 2026-11-02. 현황 갱신일: 2026-11-07. 상태: #19 작업 트리와 과거 구현·검증 기록을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
+
+## #19 전체 구현 — Handoff v2 D1~D9
+
+2026-11-07 사용자가 전체 1~3단위 구현을 승인했다. 기준은 `feat/AdminPage` / `7f36acd3873be4f9a3628f75b972fb110b2c15fa`, 시작 작업 트리는 깨끗했고 기존 #18 후속 3개 커밋을 보존했다. 루트·Backend·Frontend 지침과 Implementer·API Change·DB Migration·Verification Skill을 확인했다. 최초 실행 금지는 이후 사용자 검증 승인으로 해제됐다. 설치·실제 DB/외부 API·Docker/서버 시작·Git 변경 금지는 유지한다.
+
+1. V5는 기존 CORRECTION의 기준/제안/변경 필드/참조 JSON·적용 정보를 확장하고 Restaurant/Chef Revision과 DRAFT 부분 UNIQUE·FK·상태/사유/version 제약·조회 인덱스·감사 Revision FK를 추가한다. JDBC 저장/조회와 기존 JPA 대상 Entity의 제한된 적용 메서드를 사용한다. V1~V4·과거 자료·append-only trigger는 수정하지 않는다. 기존 스냅샷 없는 CORRECTION은 백필 없이 명시적 제안 보완/rebase 전 승인 차단한다.
+2. CorrectionService/Store·ReapprovalFacade·공통 Coordinator는 엄격 입력·버전/참조/영향 검증·재승인·감사·24시간 성공 영수증을 담당한다. 후보·직접·CREATE 승인에는 공통 잠금 연결만 추가했다. 공개 다중 조회의 read-only REPEATABLE_READ와 원본 candidate/evidence·SUSPENDED 보존을 적용했다. 실패 트랜잭션 안에서 UNIQUE 후 추가 조회하지 않는다.
+3. CorrectionPanel·전용 타입/래퍼와 Workspace/상세 진입은 비교·영향·이력·충돌·입력/인증 세대·단일 이탈 가드·멱등 재확인을 제공한다. 저장은 정정안/이력만 갱신하고 재승인은 기존 목록·상세·공개 조회 갱신 흐름에 연결한다. 숨겨진 이전/새 상세는 재진입 시 조회한다. 조회 실패는 쓰기 실패로 전파하지 않는다.
+
+작성한 테스트: V4→V5 업그레이드·기존 근거/감사/legacy 기준 null 보존·부분 UNIQUE/FK/append-only·상태/사유 제약, 원본/공개 JSON 보존, null/0·SUSPENDED·후보 원본 출처 보존, 재승인/영수증 재생·만료·버전/참조/영향/중복 충돌, 명시적 rebase·legacy 처리, 대상/정정안/감사/영수증 단계별 테스트 DB 실패 주입 롤백, 동일 키 동시 승인, 기존 CREATE 승인과 공유 정정 경합, UI 비교·충돌·입력 보존·후속 GET 실패·동일 키 재확인·PATCH 재전송 금지·상세 진입·API 라우팅을 작성했다. 기존 후보/직접/CREATE 경합 테스트의 장벽을 공통 잠금 앞으로 이동했고 원본/감사/영수증/중복 assertion은 보존한다. 잠금 비참여 쓰기의 DB UNIQUE 충돌을 별도 연결로 주입해 facade가 롤백 뒤 조회하는 사례도 유지한다.
+
+검증: 최초 작성 당시에는 사용자 실행 제한으로 NOT RUN이었다. 2026-11-07 사용자가 컴파일·테스트·빌드 검증을 승인했다. `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend`의 첫 실행은 Backend 199개 중 21개 실패로 종료 1, Frontend 타입 검사·13개 파일의 97개 테스트·빌드는 각각 PASS/0이었다. Spring Repository 프록시의 필드 직접 접근을 접근 메서드로 수정하고, 공유 감사 nullable ID의 삼항식 unboxing 오류를 수정했다. 신규 migration fixture의 승인 필수값과 잠금 spy의 실제 target 설정을 바로잡았으며, 저장소 인터페이스 spy는 실제 JPQL 조회로 대체했다. 영수증 동시 재생 테스트는 Jackson 숫자 노드 구현 타입 대신 전체 직렬화 JSON을 비교한다. 기대 필드·원자성·중복 assertion을 완화하거나 검증 설정을 변경하지 않았다.
+
+Backend 수정 후 동일 진입점 `-Backend` 재실행은 6개 실패/종료 1, 원인 수정 뒤 최종 `-Backend` 실행은 본체·테스트 컴파일 및 **199개 테스트 PASS(실패/skip 0), 전체 종료 0**이다. Frontend는 첫 실행 후 코드 변경이 없어 통과 결과를 유지하며 불필요하게 재실행하지 않았다. Backend 패키징은 backend 디렉터리에서 `.\gradlew.bat --gradle-user-home C:\workspace\sedanji\.tools\gradle-home --offline --no-daemon '-Porg.gradle.java.installations.auto-download=false' bootJar`로 PASS/0이다. 최초 인용하지 않은 -P 인수가 PowerShell에서 분리되어 작업명 오류/종료 1이었고, 인수 인용 후 동일 오프라인 패키징에 성공했다. 기존 캐시·실행 중인 Docker Engine과 임시 Testcontainers DB만 사용했으며 설치·다운로드·이미지 pull·Docker/서버 시작은 하지 않았다. Python은 변경 영향이 없어 NOT RUN(미선택)이다. 실제 브라우저·개발/운영 DB·외부 API·배포도 미실행이다. 이전 85개 PASS는 #18 결과다. PostgreSQL 테스트 코드는 임시 Testcontainers DB 전용이며 실제 DB에서 fixture/실패 주입 SQL을 실행하지 않는다. 환경이나 검증 설정을 우회하지 않는다.
+
+정적 검토는 기존 추적 15개·신규 18개(총 33개)의 diff/실제 내용, 상대 import 43개·로컬 문서 참조 39개, 신규 파일 포함 공백·마지막 개행을 확인했다. 참조 누락·공백 문제 0, `git diff --check` 종료 0이다. staged 변경 없음. V1~V4·의존성·설정·공개 DTO·무관한 화면 변경 없이 승인 범위를 대조했다. 이 결과는 컴파일/실행 성공이나 운영 데이터 안전성의 증거가 아니다. PostgreSQL 경합·실패 주입·공개 다중 조회 스냅샷 및 UI assertion의 실행 결과는 위 검증 기록을 따른다.
+
+배포는 V5 확장 스키마 후 새 앱 순서다. ALTER/FK는 강한 테이블 잠금과 기존 행 검증, 일반 인덱스는 쓰기 차단/스캔 비용이 있어 운영 적용 시간은 미확인이다. 실제 데이터 분포·Flyway 적용 상태·락 대기·구/신 앱 혼재·부하·백업 복원은 미확인이다. 기존 앱은 추가 컬럼을 무시할 수 있으나 공통 잠금에 참여하지 않으므로 정정 승인 기능을 구/신 쓰기 앱과 혼재 운용하지 않는다. 실제 이관·백필·repair·clean·데이터 정리를 실행하지 않는다. 현재 계약은 [ADMIN_API.md](ADMIN_API.md)의 #19 절을 따른다.
+
 
 ## #18 후속 보완 — Handoff v4 P1~P3
 

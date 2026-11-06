@@ -7,7 +7,7 @@
 - Java 17, Spring Boot 3.5.16, Gradle Wrapper 8.14.3을 사용한다. 의존성·태스크는 `build.gradle`, 버전은 Wrapper 설정을 확인한다.
 - `src/main/java/kr/sedanji/`의 chef, restaurant, video, mention, mentiondraft, restaurantcandidate, importjob, registration, admin은 도메인 중심 패키지다. 필요한 범위에서 Service·Repository·Entity 책임을 분리한다.
 - 기존 Controller·DTO·오류는 `src/main/java/kr/sedanji/ApiController.java`, `Models.java`, `ApiErrors.java`다. 신규 직접 등록은 `registration/DirectRegistrationController`·요청/결과 record·`DirectRegistrationErrors`로 분리됐다. 외부 연동은 `ExternalApis.java`다. 별도 common·infrastructure 패키지가 이미 있다고 가정하지 않는다.
-- V3의 초안 테이블은 `mentiondraft/MentionDraftEntity`·Repository·Service가 사용하며 `MentionDraftController`가 CREATE 초안 생성·단건 조회·식당별 페이지 목록·부분 수정을 제공한다. `MentionDraftInput`의 엄격 파싱과 `MentionDraftErrors`의 오류 계약은 신규 초안 API에 한정한다. CREATE 초안 승인은 `MentionDraftApprovalController`·전용 Request/Result/Errors와 NEVER `MentionDraftApprovalFacade`, `RegistrationService.approveDraft`로 제공한다. 정정·공개 중단·복구 API는 없다. `../docs/ADMIN_API.md`의 현재 계약과 목표 절을 구분하고 목표를 현재 API 소급 변경의 근거로 사용하지 않는다.
+- V3의 초안 테이블은 `mentiondraft/MentionDraftEntity`·Repository·Service가 사용하며 `MentionDraftController`가 CREATE 초안 생성·단건 조회·식당별 페이지 목록·부분 수정을 제공한다. `MentionDraftInput`의 엄격 파싱과 `MentionDraftErrors`의 오류 계약은 신규 초안 API에 한정한다. CREATE 초안 승인은 `MentionDraftApprovalController`·전용 Request/Result/Errors와 NEVER `MentionDraftApprovalFacade`, `RegistrationService.approveDraft`로 제공한다. #19 작업 트리의 `correction` 패키지가 CORRECTION/Restaurant·Chef Revision의 저장·비교·rebase·재승인·감사 조회를 제공한다. 후보·직접·CREATE 승인과 공통 transaction advisory lock을 공유하며 원본 근거·공개 상태를 보존한다. V5 파일과 코드의 컴파일·테스트·패키징 검증 결과는 구현 기록의 #19 절을 따른다. 실제 개발/운영 DB 적용은 미확인이다. 공개 중단·복구 API는 없다. `../docs/ADMIN_API.md`의 현재 계약과 목표 절을 구분하고 목표를 현재 API 소급 변경의 근거로 사용하지 않는다.
 
 ## 트랜잭션과 동시성
 

@@ -9,7 +9,7 @@
 - React Router, TanStack Query, Tailwind CSS, shadcn/ui는 기존 기본 선택·향후 도입 대상이며 현재 사용 중이 아니다. 승인 없이 추가하거나 하네스 정비와 함께 전환하지 않는다.
 - 기능 중심 디렉터리를 필요한 범위에서 확장하되 app/pages/entities/shared 전체가 이미 있다고 가정하거나 일괄 재배치하지 않는다.
 - 사용자 모바일·관리자 웹은 목표 제품 방향이다. 현재 공개 웹 지도를 React Native·Expo 앱으로 표현하지 않으며 SDK·내비게이션·Expo Go 호환성은 실제 모바일 파일 확인 전 미확인으로 둔다.
-- #17 직접 등록·초안 흐름에 이어 #18 작업 트리는 관리자 식당 검색·필터·목록·관계 상세·초안 재개와 기존 식당의 고정 관계 추가를 연결한다. 관계 추가는 restaurantId 기반 초안을 명시적으로 저장한 뒤 승인하며 직접 승인 DTO를 확장하지 않는다. 정정·공개 제어·이력 실행 UI와 제보 처리는 제외다. `../docs/ADMIN_API.md`의 현재 계약과 목표 설계를 구분하며 미구현 API를 호출하거나 가짜 성공을 표시하지 않는다.
+- #17 직접 등록·초안 흐름에 이어 #18 작업 트리는 관리자 식당 검색·필터·목록·관계 상세·초안 재개와 기존 식당의 고정 관계 추가를 연결한다. 관계 추가는 restaurantId 기반 초안을 명시적으로 저장한 뒤 승인하며 직접 승인 DTO를 확장하지 않는다. #18 당시에는 정정·공개 제어·이력 UI와 제보 처리를 제외했다. #19 작업 트리는 `features/admin/corrections/CorrectionPanel.tsx`에서 관계·공식 장소·셰프 표기 정정의 비교·재승인·이력을 연결한다(타입 검사·테스트·빌드 결과는 구현 기록의 #19 절 참조). 공개 제어·제보는 계속 제외다. `../docs/ADMIN_API.md`의 현재 계약과 목표 설계를 구분하며 미구현 API를 호출하거나 가짜 성공을 표시하지 않는다.
 
 근거: `package.json`, `tsconfig.json`, `vite.config.ts`, `src/main.tsx`, `src/App.tsx`, `../docs/REQUIREMENTS.md`, `../docs/DIRECT_REGISTRATION_MIGRATION.md`.
 

@@ -1,6 +1,22 @@
 # 세단지 도메인 설계
 
-갱신일: 2026-11-06. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
+갱신일: 2026-11-07. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
+
+## #19 정정·공유 정보 Revision — 승인된 구현 범위
+
+Handoff v2 D1~D9 및 전체 구현 승인을 따른다. Mention CORRECTION은 기존 mention_drafts를 사용하고 base_snapshot·proposed_values·changed_fields·reference_snapshot·적용 정보를 확장한다. RestaurantRevision과 ChefRevision은 각각 대상 FK, 기준 version/스냅샷, 제안/변경 필드, 참조 스냅샷, 필수 사유, DRAFT/APPLIED·자체 version, 작성·수정·적용 관리자/시각을 가진다. 각 대상의 DRAFT는 부분 UNIQUE로 하나만 허용한다. 감사는 기존 append-only 테이블에서 정정안/Revision FK와 처리 당시 스냅샷을 보존한다. 신규 스키마는 V5이며 실제 DB 적용은 하지 않는다.
+
+```mermaid
+erDiagram
+    MENTION ||--o{ MENTION_DRAFT : correction
+    RESTAURANT ||--o{ RESTAURANT_REVISION : revision
+    CHEF ||--o{ CHEF_REVISION : revision
+    RESTAURANT_REVISION o|--o{ ADMIN_AUDIT_EVENT : records
+    CHEF_REVISION o|--o{ ADMIN_AUDIT_EVENT : records
+```
+
+정정안 저장은 원본·공개본을 변경하지 않는다. 재승인은 공통 transaction advisory lock 아래 기준·참조·영향 hash·중복을 재검증하고 허용 필드·version·APPLIED·감사·24시간 성공 영수증을 한 트랜잭션으로 저장한다. 원본 candidate/evidence와 SUSPENDED를 보존한다. 기존 기준 스냅샷 없는 CORRECTION은 승인 차단 후 명시적 rebase 대상으로 두며 백필하지 않는다. 아래 미구현 표기는 각 과거 작업 시점의 기록이다. 최초 실행 제한 후 2026-11-07 검증 승인으로 Backend 컴파일·199개 테스트·bootJar, Frontend 타입 검사·97개 테스트·빌드를 통과했다. 실제 DB 적용 상태는 미확인이며 상세 명령·실패 수정 이력은 구현 기록을 따른다.
+
 
 ## #16 출처 판정 저장·관리자 조회 — 병합된 현재 구현
 
