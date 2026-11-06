@@ -2,6 +2,58 @@
 
 갱신일: 2026-11-06. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
 
+## #16 관리자 식당 조회 — 현재 작업 트리
+
+기준 HEAD `852ca9b227fdf9502368a47391f33b76a8c1f8c3`에 신규 조회를 추가했다. 아래는 소스 계약이며 실행 검증·배포 완료를 뜻하지 않는다. 기존 API와 공개 DTO는 유지한다. 선행 참조는 #13이다.
+
+- `GET /api/admin/restaurants?query=&publication=ALL&needsSourceReview=false&page=0&size=20`
+- `GET /api/admin/restaurants/{id}?mentionPage=0&mentionSize=20`
+
+세션 ADMIN과 DB 활성 관리자가 필요하다. GET에는 CSRF 토큰이 필요 없으며 쓰기 보호는 유지한다. 페이지는 0 이상, 크기는 1~100(기본 20), offset은 int 범위 이내다. 잘못된 숫자·enum·boolean, 중복·미지원 parameter(자유 sort 포함)는 400 `INVALID_QUERY`다. 빈 결과·범위 밖 페이지는 200과 실제 totalElements, 없는 상세는 404 `RESOURCE_NOT_FOUND`, 비활성 관리자는 403 `ADMIN_INACTIVE`, 예상 밖 실패는 500 `INTERNAL_ERROR`다. 신규 Controller 전용 오류는 `{code,message}`, Security 익명 401·권한 부족 403은 기존 빈 응답이다.
+
+query는 앞뒤 공백 제거 후 최대 100 Unicode 문자이며 내부 공백은 보존한다. 공백뿐이면 검색을 해제한다. 식당명·도로명·지번 주소·모든 실제 Mention의 셰프명을 DB lower 기준 부분 일치 OR로 검색한다. `%`, `_`, escape 문자 `!`는 리터럴이며 parameter binding한다. null 주소는 문자열로 변환하지 않는다. 초안·후보는 검색·집계에서 제외한다.
+
+publication은 `ALL`(모든 식당), `PUBLISHED`(APPROVED AND PUBLISHED 관계 존재), `NO_PUBLIC_RELATION`(공개 관계 없음)이다. 검색·공개·출처 조건은 AND이며 서로 다른 관계로 충족해도 된다. 검색에 맞는 관계만으로 집계나 상세를 제한하지 않는다. `needsSourceReview=true`만 필터를 적용하고 false·생략은 필터를 해제한다.
+
+목록은 `created_at DESC,id DESC`, 관계는 `Mention.id DESC`다. 관계 추가·승인으로 식당 순서를 올리지 않는다. V3 이전 자료의 created_at은 실제 과거 등록 시각 복원이 아니다. 응답별 readOnly REPEATABLE_READ로 count·페이지·집계를 같은 스냅샷에서 조립하며 HTTP 페이지 사이 스냅샷은 고정하지 않는다.
+
+모든 페이지는 `{items,totalElements,page,size,hasNext}`다. 목록 item 필드는 다음과 같다.
+
+```text
+id,name,roadAddress|null,address|null,createdAt,
+relationCount,publicRelationCount,hasPublicRelation,chefCount,
+chefs:[{id,name,relationCount,publicRelationCount}],hasMoreChefs,
+needsSourceReview:boolean|null,sourceCount,uncheckedSourceCount,reviewRequiredSourceCount
+```
+
+chefs는 distinct ID 오름차순으로 DB에서 식당별 최대 3명만 반환한다. 동명이인은 구분하고 chefCount는 전체 distinct 수다. 목록에 전체 관계·검토 메모를 포함하지 않는다.
+
+상세 응답:
+
+```text
+restaurant:{id,kakaoPlaceId,name,roadAddress|null,address|null,longitude,latitude,placeUrl,version,createdAt},
+summary:{relationCount,publicRelationCount,hasPublicRelation,needsSourceReview,
+         sourceCount,uncheckedSourceCount,reviewRequiredSourceCount},
+mentions:{items:[{
+  id,version,chef:{id,name},
+  video:{id,title,channelTitle,publishedAt,sourceCheckStatus,sourceCheckedAt|null,sourceCheckReason|null},
+  mentionType|null,timestampSeconds|null,verificationStatus,publicationStatus,
+  verificationNote|null,reviewedAt|null
+}],totalElements,page,size,hasNext}
+```
+
+무관계 식당은 200·빈 관계다. null 시점과 확인된 0초를 구분한다. verificationNote는 관리자 상세에만 제공하며 evidence·인증정보·감사 원문·초안·후보는 제외한다. 공개 상세 API는 추가하지 않았다.
+
+출처 집계는 모든 실제 Mention에 연결된 distinct Video 기준이다. REVIEW_REQUIRED가 있으면 needsSourceReview=true, 없고 UNCHECKED가 있거나 출처가 없으면 null, 출처가 있고 모두 AVAILABLE이면 false다. 공개 상태와 독립적이며 영상 문제만으로 공개 관계를 숨기지 않는다.
+
+V4는 Video에 `source_check_status/source_checked_at/source_check_reason`을 추가한다. UNCHECKED는 시각·원인 null, AVAILABLE은 시각 필수·원인 null, REVIEW_REQUIRED는 시각 필수·원인 UNAVAILABLE이다. 기존·신규 영상은 확인 기록 없으면 UNCHECKED다. 메타데이터·수집 성공을 AVAILABLE로 추론하지 않는다. UNAVAILABLE은 삭제/비공개를 구분하지 않으며 일시적 오류와도 다르다. 실제 확인·갱신 producer, source-check API·배치는 미구현이다. 이후 producer는 확정 상태와 마지막 시도 실패를 구분해야 한다.
+
+조회는 식당 predicate·EXISTS로 count/페이지를 구하고 선택 ID만 일괄 집계한다. 기존 관계·영상·공개 부분 인덱스를 유지하며 새 인덱스·검색 의존성을 추가하지 않았다. 실제 데이터 실행계획·운영 성능은 미확인이다.
+
+Frontend 타입·래퍼·UI는 제외했다. 기존 소비자는 새 경로를 사용하지 않는다. 후속 연결에서는 별도 관리자 DTO, nullable boolean, URLSearchParams, 조건 변경 시 page=0, 식당 변경 시 관계 페이지 초기화, 이전 검색의 늦은 응답 무시가 필요하다. null을 정상 출처로 표시하거나 검색 조건으로 상세 관계를 제한하면 안 된다.
+
+검증 기록(2026-11-06): 샌드박스에서 Windows PowerShell 5.1의 실행 정책 레지스트리 읽기가 거부되어 최초 명령은 시작하지 못했다. 정책 변경 없이 권한 확장으로 동일 `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend`를 실행했다. Frontend 타입 검사·테스트 11개·빌드는 각각 PASS(0)였고 Backend는 새 테스트의 mock 접근 범위 컴파일 오류로 FAIL(전체 종료 1)이었다. 테스트 헬퍼 수정 후 동일 진입점의 `-Backend` 재검증은 컴파일·테스트 178개 PASS, 실패·skip 0, 전체 종료 0이다. Python은 관련 변경이 없어 미선택했다. 실제 개발 DB·외부 API·운영 성능 검증과 구분한다.
+
 ## 현재 코드 계약 — #14·#15 작업 트리
 
 기준: `feat/RegistrationService` / `ffd5efc74830b58f5d54a7a005fba3bc76abc69a`와 #15 미커밋 구현. #14의 PR #23 병합은 이전 기록이며 로컬에 main 병합 커밋 객체가 없어 이번에 파일 동일성을 재확인하지 못했다(fetch 미실행). 다음은 로컬 소스 계약이며 배포 서버·개발 DB 상태를 뜻하지 않는다. **목표 설계**는 현재 API 전체에 적용된 규칙이 아니다.
@@ -28,7 +80,7 @@
 
 직접 승인에서는 식당 생성·재사용, 관계 승인, 감사 이벤트, 24시간 멱등 영수증을 하나의 트랜잭션으로 저장한다. 같은 관리자·키·요청의 유효 영수증 재생은 세션 검색 자료가 없어져도 같은 결과를 201로 반환한다. 다른 요청은 409, 만료 후에는 관계 중복 제약으로 재생성을 막는다. 기존 식당 이름·주소는 재사용 때 덮어쓰지 않는다. 후보·초안 생성 없이 관계가 APPROVED/PUBLISHED가 되며 공개 조회는 두 상태를 모두 검사한다.
 
-현재 Video는 `id/title/channelTitle/publishedAt/description/extractionWarning`이다. `sourceCheckStatus/sourceCheckedAt`, 재사용 여부 래퍼, 출처 재확인 API는 없다.
+기존 Models.Video 응답은 `id/title/channelTitle/publishedAt/description/extractionWarning`을 유지한다. #16 관리자 상세의 Video에는 출처 상태가 추가되며, 실제 출처 확인 API·재사용 여부 래퍼는 없다.
 
 ### 현재 오류와 소비자
 
