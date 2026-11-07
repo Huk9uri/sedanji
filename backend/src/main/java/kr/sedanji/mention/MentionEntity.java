@@ -60,6 +60,18 @@ public class MentionEntity {
     }
     public Long getId() { return id; }
     public long getVersion() { return version; }
+    public void suspend() {
+        if (!"APPROVED".equals(verificationStatus) || !"PUBLISHED".equals(publicationStatus))
+            throw new IllegalArgumentException("공개된 승인 관계만 중단할 수 있습니다.");
+        publicationStatus = "SUSPENDED";
+    }
+    public void restore(AdminUserEntity actor) {
+        if (!"APPROVED".equals(verificationStatus) || !"SUSPENDED".equals(publicationStatus)
+            || actor == null || !actor.isEnabled())
+            throw new IllegalArgumentException("중단된 승인 관계만 재승인할 수 있습니다.");
+        publicationStatus = "PUBLISHED";
+        reviewer = actor; reviewedAt = OffsetDateTime.now();
+    }
     public void correct(ChefEntity nextChef, RestaurantEntity nextRestaurant, VideoEntity nextVideo,
                         MentionType type, Integer timestamp, String note, AdminUserEntity actor) {
         if (!"APPROVED".equals(verificationStatus) || nextChef == null || nextRestaurant == null || nextVideo == null

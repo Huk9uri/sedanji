@@ -1,6 +1,6 @@
 package kr.sedanji.correction;
 
-enum CorrectionKind {
+public enum CorrectionKind {
     MENTION("mentions","mention-corrections","mention_drafts","target_mention_id"),
     RESTAURANT("restaurants","restaurant-revisions","restaurant_revisions","target_id"),
     CHEF("chefs","chef-revisions","chef_revisions","target_id");
