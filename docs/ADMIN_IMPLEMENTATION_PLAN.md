@@ -1,6 +1,48 @@
 # 관리자 식당 관리 1단계 구현 계획
 
-작성일: 2026-11-02. 현황 갱신일: 2026-11-07. 상태: #19 작업 트리와 과거 구현·검증 기록을 구분한다. 실제 개발 DB·외부 API는 실행하지 않았다.
+작성일: 2026-11-02. 현황 갱신일: 2026-11-07. 상태: #20 구현·자동 검증·개발 DB V5 적용·브라우저 검증과 과거 기록을 구분한다. 실제 외부 API와 운영 DB는 실행하지 않았다.
+
+## #20 Handoff v2 — 관계 단위 공개 중단·재승인 후 복구
+
+기준 `feat/AdminPage` / `28bbdd786708522e7174c48def5976501814cf2e`, 시작 staged·unstaged·untracked 없음. 사용자가 D1~D8 Handoff 전달 후 별도로 구현 진행을 지시했다. Implementer·API Change·DB Migration·Verification과 루트·Backend·Frontend 지침을 적용했다. 최초 구현 시 테스트·타입 검사·빌드는 금지됐으며 이후 사용자가 실행을 승인했다. 설치·실제 DB·외부 API·Docker 시작·Git fetch·브랜치 변경·병합·커밋·Push·PR 생성 금지는 유지한다.
+
+작성한 구현:
+
+- publication 패키지의 엄격 입력·확인 GET·NEVER facade·트랜잭션 서비스·결과·오류. 기존 정정 스냅샷/hash/참조 조회의 좁은 도구를 재사용하며 CorrectionService의 책임을 확대하지 않는다.
+- MentionEntity.suspend/restore 및 MentionRepository의 대상 WRITE 잠금. 활성 관리자·영수증 → 공통 잠금 → 관계 잠금 → version·상태·context 검증 → 전이 flush → 감사·영수증의 원자성을 보존한다.
+- 관계별 PublicationDialog·API, 관리자 목록/상세/이력 갱신, 공개 메모리 초기화·응답 세대 보호. 불명확한 결과는 동일 요청, 성공 후 실패는 GET 전용 재시도로 구분한다.
+- PostgreSQL Testcontainers 통합 테스트에 관계별 공개 제외·내부 정보 비노출·승인/근거 보존·context 충돌·영수증·보안/엄격 입력·단계별 실패 롤백·경합·공개 스냅샷 assertion을 작성했다. UI/API 테스트에 필수 재확인·0초·중복 클릭·입력 보존·동일 요청·GET 재시도·이탈 가드·인증 세대·공개 메모리/검색/지도 무효화를 작성했다.
+
+스키마 변경 없음: 기존 상태 컬럼·version·감사 JSON·자유 action·영수증을 재사용한다. V1~V5·DB CHECK·인덱스·관계 UNIQUE·감사 append-only는 수정하지 않았다. 실제 DB의 V5 적용 여부는 미확인이다. 이슈 #20 본문·외부 서비스·모바일·저장 기능은 변경하지 않는다.
+
+정적 검토: 최초 구현 당시 tracked 수정 11개·untracked 신규 14개·staged 없음. Git 상태·양쪽 계약·변경 범위·스냅샷/잠금/감사/영수증·기존 공개 predicate와 소비 스크립트를 대조했다. `git diff --check`는 종료 코드 0이며 신규 파일의 공백·상대 import 참조 경로 검사에서도 문제를 발견하지 않았다. 이는 컴파일·타입 검사·테스트 성공을 의미하지 않는다.
+
+| 검사 | 이번 상태 | 종료 코드 | 사유 |
+| --- | --- | --- | --- |
+| Backend 테스트 | PASS | 0 | 218개, 실패·skip 0 |
+| Backend bootJar | PASS | 0 | 오프라인 패키징 |
+| Frontend 타입 검사 | PASS | 0 | tsc --noEmit |
+| Vitest | PASS | 0 | 16개 파일·110개 테스트 |
+| Frontend 빌드 | PASS | 0 | 타입 검사 후 Vite 빌드 |
+| 최초 자동 검증 당시 브라우저·개발 DB·외부 API | NOT RUN | 해당 없음 | 후속 승인·검증은 아래 별도 기록 |
+
+2026-11-07 실행 승인 후 기존 verify.ps1로 검증했다. 최초 일반 PowerShell 호출은 실행 정책 오류로 시작하지 못했다. 프로세스에만 -ExecutionPolicy Bypass를 지정한 샌드박스 실행은 Docker 접근 불가·Vitest 임시 파일 EPERM으로 전체 종료 1(Frontend 타입 검사·빌드는 PASS/0)이었다. 같은 명령을 샌드박스 밖에서 실행하자 Frontend 110개 테스트·타입 검사·빌드는 모두 PASS/0이었고, Backend는 CorrectionKind의 패키지 접근 제한 때문에 컴파일 실패(전체 종료 1)했다. enum만 public으로 변경한 뒤 -Backend 재실행에서 218개 중 감사 시각 비교 1건이 실패(종료 1)했다. 기존 이력 직렬화의 밀리초 정밀도와 응답의 마이크로초 정밀도 차이였다. 신규 공개 제어 감사 저장 시각을 밀리초로 정규화하여 감사·응답·영수증의 동일 시각 assertion을 유지했다. 기존 감사·스키마·테스트 assertion은 변경하지 않았다. 최종 -Backend 재실행은 218개 전체 PASS/0, 실패·skip 0이다.
+
+실행 명령: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\workspace\sedanji\scripts\verify.ps1 -Backend -Frontend`, Backend 수정 후 같은 진입점의 `-Backend`. Backend 패키징은 backend에서 `.\gradlew.bat --gradle-user-home C:\workspace\sedanji\.tools\gradle-home --offline --no-daemon '-Porg.gradle.java.installations.auto-download=false' bootJar`로 PASS/0이다. 기존 실행 중인 Docker와 캐시 이미지를 이용한 Testcontainers 임시 DB만 사용했다. Python은 미선택이며 실제 브라우저·개발/운영 DB·외부 API·배포 검증은 미실행이다. 실제 DB의 V5 적용 여부는 미확인이다.
+
+### 후속 승인 — 개발 DB V5 적용·관계 #1 브라우저 검증
+
+2026-11-07 사용자가 개발 DB 확인·V5 미적용 시 적용과 관계 #1(윤남노–뽀요베리)의 중단→복구 브라우저 검증을 각각 명시적으로 승인했다. 위 실행 금지·미확인 표기는 최초 구현/자동 검증 당시 기록이며, 이 후속 승인 범위에서는 아래 실제 결과를 따른다. 커밋·Push는 검증 종료 후 별도로 승인받았다.
+
+- 로컬 개발 DB `localhost:15432/sedanji`의 V1~V4 성공 이력을 확인했다. 검증용 Backend를 중지하고 기존 PostgreSQL 도구로 custom-format 백업을 생성해 `pg_restore --list`를 확인했다. 실제 복원 시험은 하지 않았다.
+- 기존 오프라인 Gradle `migrateDevelopmentDatabase` 작업으로 V5 1개를 적용하고 V1~V5 Flyway validate를 통과했다(종료 0). 기존 12개 테이블의 적용 전 컬럼을 기준으로 행 수·정렬 JSON SHA-256 지문을 비교해 모두 동일했다. 신규 Revision 테이블 2개, 초안 컬럼 6개, 감사 참조 컬럼 2개를 확인했다. migration 파일 수정·데이터 삭제·백필·repair는 없다.
+- Backend를 재시작하고 공개 `/api/restaurants`의 200 응답과 공개 식당 1곳을 확인했다. 비밀번호·덤프·지문 보고서·스크린샷은 Git 제외 로컬 경로에만 보관했다.
+- 실제 브라우저에서 검증 계정 로그인, 최신 관계·원본 근거 표시, 빈 사유 제출 차단, 미저장 이탈 확인·계속 작성·최신 조회 후 입력 보존을 확인했다. Backend 재시작에 따른 인증 만료와 재로그인 후 dialog 복귀도 확인했다.
+- 관계 #1은 APPROVED/PUBLISHED version 0 → APPROVED/SUSPENDED version 1로 전환됐다. 전체 관계 1건은 유지하고 공개 관계 0건으로 갱신됐으며, 공개 목록·검색·Kakao 마커에서 제외됐다.
+- 복구 필수 재확인이 없으면 제출이 차단됐다. 최신 화면에서 저장된 셰프·지점·영상·유형·시점·원본 근거를 대조한 뒤 브라우저 검증임을 명시한 사유·재확인 내용·체크와 명시적 재승인으로 APPROVED/PUBLISHED version 2가 됐다. 영상 재시청이나 새로운 추천 사실을 입증한 검증은 아니며 재확인 메모에도 이를 명시했다.
+- 복구 후 동일 검색어에서 식당·출처·마커 재등장을 확인했다. DB 읽기 전용 대조에서 version·reviewed_by·reviewed_at 이외의 원래 Mention 필드는 동일했다. SUSPEND_MENTION·RESTORE_MENTION 감사 각 1건과 성공 영수증 2건, 적용 전 검증 hash·재확인 내용 저장을 확인했다. 기존 검증 메모·evidence·candidate·참조·유형·시점은 보존됐다. 최종 상태는 공개이며 승인 정보와 감사는 검증 결과로 남는다.
+
+운영 DB·배포·외부 API·실제 영상 재생 검증은 수행하지 않았다. 브라우저 확인은 이 단일 개발 DB 관계의 정상 중단·복구 및 입력 보호 범위이며, 경합·롤백·멱등 재생은 앞의 자동 테스트 결과와 구분한다.
 
 ## #19 Handoff v3 — 승인 확인 감사·공식 장소 rebase 보완
 
