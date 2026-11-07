@@ -38,6 +38,33 @@ it('shows the real list and two work menus without invented submissions',async()
   expect(api).toHaveBeenCalledWith('/admin/restaurants?query=&publication=ALL&needsSourceReview=false&page=0&size=20',expect.objectContaining({signal:expect.any(AbortSignal)}));
   expect(api.mock.calls.some(([path])=>path.includes('submission'))).toBe(false);
 });
+it('controls only an approved relation and refreshes detail, history and public reads after suspension',async()=>{
+  let suspended=false;
+  const published=vi.fn(async()=>{});
+  api.mockImplementation(async(path,options)=>{
+    if(path==='/admin/mentions/101/publication')return {mention:{id:101,version:suspended?4:3,chefId:1,chefName:'김셰프',restaurantId:10,restaurantName:place.name,
+      videoId:'11111111111',videoTitle:'영상 A',channelTitle:'채널 A',mentionType:'REGULAR',timestampSeconds:0,verificationStatus:'APPROVED',publicationStatus:suspended?'SUSPENDED':'PUBLISHED',evidence:null,verificationNote:'메모 A',candidateId:null},
+      references:{restaurant:place},contextHash:'a'.repeat(64),latestControl:null,lastSuspendReason:suspended?'근거 재검토':null};
+    if(path.startsWith('/admin/mentions/101/history'))return page(suspended?[{id:1,actorId:1,action:'SUSPEND_MENTION',reason:'근거 재검토',occurredAt:'2026-11-07T00:00:00Z',beforeValue:null,afterValue:null}]:[]);
+    if(path==='/admin/mentions/101/suspend'&&options?.method==='POST'){
+      suspended=true;return {action:'SUSPEND_MENTION',mentionId:101,restaurantId:10,previousVersion:3,version:4,verificationStatus:'APPROVED',publicationStatus:'SUSPENDED',auditEventId:1,occurredAt:'2026-11-07T00:00:00Z'};
+    }
+    if(suspended&&path.startsWith('/admin/restaurants/10?'))return {...detail,summary:{...item,publicRelationCount:0,hasPublicRelation:false},mentions:page(detail.mentions.items.map(m=>m.id===101?{...m,version:4,publicationStatus:'SUSPENDED'}:m))};
+    return defaults(path);
+  });
+  render(<AdminWorkspace username="admin" authGeneration={1} onExpired={vi.fn()} onPublished={published} onGuard={vi.fn()}/>);
+  await openDetail();expect(screen.queryByRole('button',{name:'관계 #102 공개 복구'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'관계 #101 공개 중단'}));
+  await screen.findByText('김셰프 · 한빛국수');fireEvent.change(screen.getByLabelText('처리 사유'),{target:{value:'근거 재검토'}});
+  fireEvent.click(screen.getByRole('button',{name:'이 관계만 공개 중단'}));
+  await screen.findByText('SUSPEND_MENTION · 2026-11-07T00:00:00Z');
+  await waitFor(()=>expect(published).toHaveBeenCalledTimes(1));fireEvent.click(screen.getByRole('button',{name:'닫기'}));
+  expect(await screen.findByRole('button',{name:'관계 #101 공개 복구'})).toBeInTheDocument();
+  expect(screen.getByText('공개 관계 0 / 전체 관계 2')).toBeInTheDocument();
+  expect(api.mock.calls.filter(([path,o])=>path==='/admin/mentions/101/suspend'&&o?.method==='POST')).toHaveLength(1);
+  const listsBefore=listCalls().length;fireEvent.click(screen.getByRole('button',{name:'← 목록으로'}));
+  await waitFor(()=>expect(listCalls().length).toBeGreaterThan(listsBefore));
+});
 it('does not search on typing and resets pages on executed filters, preserving conditions on return',async()=>{
   api.mockImplementation(async(path)=>path.startsWith('/admin/restaurants?')?page([item],40,new URLSearchParams(path.split('?')[1]).get('page')==='1'?1:0,true):defaults(path));mount();await screen.findByRole('button',{name:'한빛국수'});
   const before=listCalls().length;fireEvent.change(screen.getByLabelText('관리자 식당 검색'),{target:{value:'한빛 & 김'}});expect(listCalls()).toHaveLength(before);
