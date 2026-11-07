@@ -17,6 +17,67 @@ defaults:
     shell: bash
 
 jobs:
+  e2e:
+    name: Isolated Chromium E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+          validate-wrappers: true
+          dependency-graph: disabled
+          build-scan-publish: false
+      - name: Prepare packages and Chromium (online)
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Prepare isolated database images and Gradle runtime (online)
+        run: |
+          set -euo pipefail
+          docker pull postgres:17-alpine
+          docker pull testcontainers/ryuk:0.14.0
+          cd backend
+          ./gradlew --no-daemon -Porg.gradle.java.installations.auto-download=false prepareE2eDependencies
+      - name: Run E2E (offline dependencies, no real external keys)
+        id: tests
+        run: |
+          echo "started=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+          node scripts/run-e2e.mjs
+      - name: Validate fresh sanitized report
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.tests.outcome != '' }}
+        env:
+          SEDANJI_E2E_AFTER: ${{ steps.tests.outputs.started }}
+        run: node scripts/run-e2e.mjs --validate-report
+      - name: Upload sanitized E2E report only
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.tests.outcome != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sanitized-e2e-report
+          path: .tools/e2e-report.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: E2E execution summary
+        if: ${{ always() }}
+        env:
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          echo "E2E execution=$TESTS; skipped/empty=NOT RUN. Real external integrations are separate and not established by this job." >> "$GITHUB_STEP_SUMMARY"
   backend:
     name: Backend
     runs-on: ubuntu-24.04

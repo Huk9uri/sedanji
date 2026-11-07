@@ -1,0 +1,142 @@
+{
+  "ciRun": "https://github.com/Huk9uri/sedanji/actions/runs/42362625629",
+  "ciJobId": 128373994115,
+  "artifactId": 13570720101,
+  "originalCI": {
+    "started": "2026-11-07T10:09:15.034Z",
+    "finished": "2026-11-07T10:10:05.807Z",
+    "status": "failed",
+    "tests": [
+      {
+        "title": "A1 A2 최소 초안 → 서버 ID 재개 → null 시점 승인",
+        "status": "passed",
+        "duration": 4000
+      },
+      {
+        "title": "A3 초안 없는 직접 승인 · 0초 표시와 출처 URL",
+        "status": "passed",
+        "duration": 1650
+      },
+      {
+        "title": "B1 B4 관계 정정은 재승인 후 공개 · 원본 근거와 이력 보존",
+        "status": "failed",
+        "duration": 11606,
+        "failure": "timeout at admin.spec.ts:151"
+      },
+      {
+        "title": "B2 공유 셰프 영향 두 관계 확인 후 이름 재승인",
+        "status": "passed",
+        "duration": 1529
+      },
+      {
+        "title": "B3 공식 장소 전체 스냅샷 · null 포함 재승인",
+        "status": "passed",
+        "duration": 1386
+      },
+      {
+        "title": "C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구",
+        "status": "passed",
+        "duration": 2334
+      },
+      {
+        "title": "보안 실제 세션 로그인·로그아웃·서버 만료·CSRF 403",
+        "status": "passed",
+        "duration": 1560
+      },
+      {
+        "title": "충돌 두 실제 로그인 context · stale version과 입력 보존",
+        "status": "passed",
+        "duration": 1874
+      }
+    ],
+    "cleanup": true,
+    "exitCode": 1,
+    "failure": {
+      "phase": "tests",
+      "kind": "FAIL"
+    },
+    "head": "93f2cfc71fe1234db97487ed034da01c9e83ce2d",
+    "worktreeSha256": "07e605e27ae614f16be42f7bd91255b031ac5f651519cab9151b6e51bf99e593"
+  },
+  "ciOtherJobs": {
+    "Backend": "success",
+    "Frontend": "success",
+    "Python": "success"
+  },
+  "localFixValidation": {
+    "command": "powershell.exe -NoProfile -File C:/workspace/sedanji/scripts/verify.ps1 -Frontend -E2E",
+    "overallExitCode": 0,
+    "frontend": {
+      "typecheck": "PASS",
+      "tests": 110,
+      "files": 16,
+      "build": "PASS"
+    },
+    "e2e": {
+      "started": "2026-11-07T10:46:53.749Z",
+      "finished": "2026-11-07T10:47:49.875Z",
+      "status": "passed",
+      "tests": [
+        {
+          "title": "A1 A2 최소 초안 → 서버 ID 재개 → null 시점 승인",
+          "status": "passed",
+          "duration": 7002
+        },
+        {
+          "title": "A3 초안 없는 직접 승인 · 0초 표시와 출처 URL",
+          "status": "passed",
+          "duration": 1465
+        },
+        {
+          "title": "B1 B4 관계 정정은 재승인 후 공개 · 원본 근거와 이력 보존",
+          "status": "passed",
+          "duration": 1553
+        },
+        {
+          "title": "B2 공유 셰프 영향 두 관계 확인 후 이름 재승인",
+          "status": "passed",
+          "duration": 1283
+        },
+        {
+          "title": "B3 공식 장소 전체 스냅샷 · null 포함 재승인",
+          "status": "passed",
+          "duration": 1534
+        },
+        {
+          "title": "C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구",
+          "status": "passed",
+          "duration": 2280
+        },
+        {
+          "title": "보안 실제 세션 로그인·로그아웃·서버 만료·CSRF 403",
+          "status": "passed",
+          "duration": 1570
+        },
+        {
+          "title": "충돌 두 실제 로그인 context · stale version과 입력 보존",
+          "status": "passed",
+          "duration": 1831
+        }
+      ],
+      "cleanup": true,
+      "exitCode": 0,
+      "head": "e9fc70ecfbdc44925962c66b75c8f409872d97b7",
+      "worktreeSha256": "60d5de0ad1360f49992635db026f68abc8a6068180011cc9bf2efca4e63b1b25"
+    },
+    "Backend": "NOT RUN (not changed)",
+    "Python": "NOT RUN (not changed)"
+  },
+  "reportGuardChecks": [
+    "actual CI report rejected with 7/8 diagnostic",
+    "valid report accepted",
+    "zero tests rejected",
+    "skip rejected",
+    "cleanup failure rejected",
+    "nonzero exit rejected",
+    "invalid time rejected",
+    "stale report rejected",
+    "empty CI start marker rejected",
+    "invalid JSON rejected"
+  ],
+  "remoteFixRun": "NOT RUN (fix not committed/pushed)"
+}

@@ -6,14 +6,14 @@ Run existing Sedanji checks without installing dependencies or using the develop
 powershell -NoProfile -File scripts/verify.ps1 -Frontend -Python
 #>
 [CmdletBinding()]
-param([switch]$Backend, [switch]$Frontend, [switch]$Python)
+param([switch]$Backend, [switch]$Frontend, [switch]$Python, [switch]$E2E)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 $script:Results = New-Object 'System.Collections.Generic.List[object]'
 $script:OverallExit = 0
-$all = -not ($Backend -or $Frontend -or $Python)
+$all = -not ($Backend -or $Frontend -or $Python -or $E2E)
 
 function Add-VerifyResult {
     param([string]$Check, [string]$Status, [string]$Kind, [string]$Reason,
@@ -257,14 +257,29 @@ function Invoke-BackendChecks {
     else { Add-VerifyResult 'Backend/test' 'PASS' 'TEST' ($tests.ToString() + ' tests; no failures or skips.') 0 }
 }
 
-foreach ($area in @('Backend', 'Frontend', 'Python')) {
-    $selected = $all -or ($area -eq 'Backend' -and $Backend) -or ($area -eq 'Frontend' -and $Frontend) -or ($area -eq 'Python' -and $Python)
+function Invoke-E2EChecks {
+    $node = Get-VerifyExecutable 'node.exe'
+    if (-not $node) { Stop-VerifyArea @('E2E') 'Node is missing; nothing was installed.'; return }
+    $runner = Join-Path $script:RepoRoot 'scripts/run-e2e.mjs'
+    $preflight = Invoke-VerifyCommand $node @($runner, '--preflight') $script:RepoRoot
+    if ($preflight.Code -ne 0 -or $null -eq $preflight.Code) {
+        Stop-VerifyArea @('E2E') 'E2E environment is not prepared; no dependency/browser/image installation was attempted.' $preflight.Code; return
+    }
+    $result = Invoke-VerifyCommand $node @($runner) $script:RepoRoot
+    if ($null -eq $result.Code) { Stop-VerifyArea @('E2E') 'E2E runner could not start.'; return }
+    if ($result.Code -eq 0) { Add-VerifyResult 'E2E' 'PASS' 'BROWSER/DB' 'Fresh report: 8 tests, no failures/skips, owned resources cleaned.' 0 }
+    else { Add-VerifyResult 'E2E' 'FAIL' 'BUILD/TEST/CLEANUP' 'Inspect sanitized .tools/e2e-report.json for execution phase and test status.' $result.Code }
+}
+
+foreach ($area in @('Backend', 'Frontend', 'Python', 'E2E')) {
+    $selected = ($all -and $area -ne 'E2E') -or ($area -eq 'Backend' -and $Backend) -or ($area -eq 'Frontend' -and $Frontend) -or ($area -eq 'Python' -and $Python) -or ($area -eq 'E2E' -and $E2E)
     if (-not $selected) { Add-VerifyResult $area 'NOT RUN' 'NOT SELECTED' 'Area not selected.' $null $false; continue }
     try {
         switch ($area) {
             'Backend' { Invoke-BackendChecks }
             'Frontend' { Invoke-FrontendChecks }
             'Python' { Invoke-PythonChecks }
+            'E2E' { Invoke-E2EChecks }
         }
     } catch { Stop-VerifyArea @($area + '/verification') 'Preflight/report processing failed; inspect the environment. Other areas continue.' }
 }

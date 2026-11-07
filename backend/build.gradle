@@ -53,3 +53,26 @@ tasks.named('wrapper') {
     distributionType = Wrapper.DistributionType.BIN
     distributionSha256Sum = 'bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531'
 }
+
+tasks.register('e2eBackend', JavaExec) {
+    group = 'verification'
+    description = 'Start the isolated browser-test backend (test runtime only).'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'kr.sedanji.E2eLauncher'
+}
+
+tasks.register('prepareE2eDependencies') {
+    group = 'verification'
+    description = 'Explicit online preparation; resolve the test launcher runtime without starting it.'
+    dependsOn testClasses
+    doLast { configurations.testRuntimeClasspath.resolve() }
+}
+
+tasks.register('externalConnectionBackend', JavaExec) {
+    group = 'verification'
+    description = 'Separately authorized, budget-limited real external connection check on a fresh temporary DB.'
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'kr.sedanji.ExternalConnectionLauncher'
+}

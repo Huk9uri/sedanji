@@ -16,6 +16,10 @@ powershell.exe -NoProfile -File .\scripts\verify.ps1 -Frontend
 powershell.exe -NoProfile -File .\scripts\verify.ps1 -Python
 powershell.exe -NoProfile -File .\scripts\verify.ps1 -Frontend -Python
 
+# 명시적 선택: 실제 React/Backend + 실행별 임시 PostgreSQL + Chromium
+# 패키지/브라우저/이미지 준비는 검사와 별도이며 검사에서 자동 설치하지 않음
+powershell.exe -NoProfile -File .\scripts\verify.ps1 -E2E
+
 # 호출 직후 보존한다. 후속 명령의 종료 코드로 덮어쓰지 않는다.
 $verificationExit = $LASTEXITCODE
 ```
@@ -31,6 +35,9 @@ $verificationExit = $LASTEXITCODE
 | Frontend/test | `npm run test` → `vitest run` | 위 조건 및 jsdom. `frontend/vite.config.ts`, `src/test-setup.ts` 사용 |
 | Frontend/build | `npm run build` → `npm run typecheck && vite build` | 위 조건. 이 명령에도 타입 검사가 포함됨 |
 | Python/test | 루트 `python.exe -B -m unittest -v test_youtube_poc test_kakao_local_poc` | Python 3.8 이상. 표준 라이브러리와 명시한 두 테스트 모듈 |
+| E2E (명시 선택만) | `node scripts/run-e2e.mjs`, `frontend/tsconfig.e2e.json` | 지원 Node 22/24/26, 설치된 Playwright 1.65.0/Chromium, Java 17/캐시 Gradle·의존성, Linux Docker/준비된 이미지, 빈 전용 포트 |
+
+`-E2E`만 선택하면 기존 세 영역을 선택하지 않는다. 기본값은 기존 Backend·Frontend·Python이며 E2E를 자동 포함하지 않는다. E2E는 테스트 전용 Backend·Vite·새 임시 DB를 시작하고 소유 자원만 정리한다. 실제 `.env`·개발 DB·외부 키·실제 지도 SDK를 사용하지 않는다. 자세한 준비·정제 보고서·실패/정리 이력·M1 판정은 [#21 검증 기록](../ISSUE_21_VERIFICATION.md)을 따른다.
 
 Frontend는 독립적인 실패를 보고하기 위해 타입 검사·테스트·빌드를 각각 실행한다. 기존 build 스크립트를 그대로 사용하므로 성공 경로에서 타입 검사가 한 번 더 수행된다. 현재 Vite 7의 Node 범위는 20.19 이상인 20.x 또는 22.12 이상의 22.x 및 이후 주 버전이며, 실제 의존성 요구사항이 바뀌면 사전 점검도 함께 갱신한다. `npm ls --all --offline --json`으로 설치 트리를 점검하고 npm 실행은 offline 모드로 한다. 설치 명령과 npx를 사용하지 않는다.
 
