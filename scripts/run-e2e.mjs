@@ -92,7 +92,20 @@ function validate() {
   }
   console.log('PASS: E2E 8 tests; no failures/skips; cleanup confirmed');
 }
-if (process.argv.includes('--validate-report')) { validate(); process.exit(0); }
+if (process.argv.includes('--validate-report')) {
+  try { validate(); process.exit(0); } catch {
+    // Only safe counts/flags: no raw assertion messages, request data or tokens.
+    try {
+      const value = JSON.parse(readFileSync(report, 'utf8'));
+      const tests = Array.isArray(value.tests) ? value.tests : [];
+      const passed = tests.filter(test => test?.status === 'passed').length;
+      const skipped = tests.filter(test => test?.status === 'skipped').length;
+      const exit = Number.isInteger(value.exitCode) ? value.exitCode : 'missing';
+      console.error(`FAIL: E2E report rejected; passed=${passed}/${tests.length}; skipped=${skipped}; exit=${exit}; cleanup=${value.cleanup === true}. Inspect sanitized-e2e-report artifact.`);
+    } catch { console.error('FAIL: E2E report is missing or invalid.'); }
+    process.exit(1);
+  }
+}
 try {
   mkdirSync(dirname(report), { recursive: true });
   rmSync(report, { force: true });

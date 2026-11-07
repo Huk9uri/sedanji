@@ -141,17 +141,32 @@ test('B1 B4 관계 정정은 재승인 후 공개 · 원본 근거와 이력 보
   await saveCorrection(page, 'B1 근거 재확인');
   expect(own((await probe()).mentions, original.id)).toEqual(original);
   expect(await publicData(page)).toEqual(beforePublic);
-  await approveCorrection(page);
+  // Approval updates the editor before its follow-up history GET completes.
+  // Hold that real request so the previous CREATED event stays visible first.
+  let releaseHistory = () => {};
+  const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
+  const historyPath = new RegExp(`/api/admin/mentions/${original.id}/history\\?`);
+  await page.route(historyPath, async route => { await historyGate; await route.continue(); });
+  const approvedSummary = page.locator('summary').filter({ hasText: /^CORRECTION_APPROVED · B1 근거 재확인 ·/ });
+  try {
+    await approveCorrection(page);
+    await expect(page.locator('summary').filter({ hasText: /^CORRECTION_CREATED · B1 근거 재확인 ·/ })).toBeVisible();
+    await expect(approvedSummary).toHaveCount(0);
+  } finally { releaseHistory(); }
   const after = await probe(); const changed = own(after.mentions, original.id);
   expect(changed.mention_type).toBe('RECOMMENDED'); expect(changed.version).toBe(Number(original.version) + 1);
   for (const field of ['evidence', 'restaurant_candidate_id', 'chef_id', 'restaurant_id', 'video_id', 'timestamp_seconds', 'review_note']) expect(changed[field]).toEqual(original[field]);
   expect(after.candidates).toEqual(data.candidates);
-  const event = page.locator('details').filter({ has: page.locator('summary', { hasText: 'B1 근거 재확인' }) }).first();
+  // Select the specific approval event, independent of insertion/order changes.
+  await expect(approvedSummary).toBeVisible();
+  const event = page.locator('details').filter({ has: approvedSummary });
+  await expect(event).toHaveCount(1);
   await event.locator(':scope > summary').click();
   await expect(event.getByText('변경 전', { exact: true })).toBeVisible();
   await expect(event.getByText('변경 후', { exact: true })).toBeVisible();
   await expect(event.getByRole('heading', { name: '승인 당시 영향 확인' })).toBeVisible();
   await expect(event.locator(':scope > summary')).toContainText('e2e-admin');
+  await expect(event.locator(':scope > summary')).toContainText('CORRECTION_APPROVED');
   expect((await publicData(page)).find(r => r.id === original.restaurant_id)!.mentions[0].mentionType).toBe('RECOMMENDED');
 });
 

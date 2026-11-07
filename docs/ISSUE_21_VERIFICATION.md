@@ -6,6 +6,8 @@
 
 **최종 M1 판정(2026-11-07): 완료 제안.** 승인된 기본 E2E·현재 전체 회귀·실제 외부 연결 범위를 모두 통과했고 이 검증 범위에서 중요 미해결 제품 결함은 발견하지 않았다. 실행 검증 당시 작업은 미커밋이었으며 원격 CI Job·PR 병합·Issue/마일스톤 완료 처리는 수행하지 않았다. 영상 근거 정확성·실제 재생·운영 안정성까지 완료로 확대하지 않는다.
 
+**후속 최신 상태:** PR #34의 최초 CI는 E2E 이력 선택 경쟁으로 실패했다. 아래 수정의 로컬 검증은 PASS이지만 수정본의 원격 CI는 아직 실행하지 않았다. M1 최종 확정은 수정본 CI 확인 후 판단한다. 앞의 완료 제안과 로컬 PASS를 CI PASS로 인용하지 않는다.
+
 ## 구현과 격리
 
 - `frontend/e2e/admin.spec.ts`: Chromium 8개 테스트에 A1~A3/B1~B4/C1~C3/보안/충돌을 묶었다. worker 1, retry 0, 테스트마다 새 BrowserContext. 별도 관리자 context를 만드는 충돌 테스트도 실제 로그인한다.
@@ -160,3 +162,17 @@ trace/HAR/video/storageState는 생성하지 않는다. Playwright 기본 실패
 ## 후속 커밋 승인
 
 사용자가 3개 단위 커밋을 승인했다. `3a936ba`는 E2E/격리 환경·실제 외부 전용 launcher, `060a990`은 명시적 verify 선택·독립 CI Job을 저장한다. 세 번째 문서 커밋은 본 기록·검증 안내·정제 근거 JSON 2개를 포함한다. 위 검증 후 실행 소스 내용은 변경하지 않았으며 커밋 단계에서는 문서의 시점 표현만 바로잡았다. 커밋 후 테스트를 다시 실행했다고 주장하지 않는다. Push·PR 생성·원격 CI 실행·Issue/마일스톤 변경은 수행하지 않았다.
+
+## PR #34 최초 CI 실패와 이력 선택 경쟁 수정
+
+[CI run 42362625629](https://github.com/Huk9uri/sedanji/actions/runs/42362625629)의 실제 artifact `13570720101`을 읽었다. PR head `e9fc70ecfbdc44925962c66b75c8f409872d97b7`, 실제 checkout merge SHA `93f2cfc71fe1234db97487ed034da01c9e83ce2d`. Backend/Frontend/Python Job은 success, E2E는 **7 PASS/1 FAIL**이며 cleanup true/exit 1이었다. 실패는 B1/B4의 이전 `admin.spec.ts:151`, 펼친 이력의 “변경 전” 표시 대기 timeout이다. 뒤의 `--validate-report` 오류는 앞선 실제 테스트 실패를 올바르게 거부한 후속 결과다.
+
+`CorrectionPanel.write`는 승인 응답으로 APPLIED 편집 상태를 먼저 갱신하고 후속 history GET을 기다린다. 기존 테스트는 APPLIED만 기다린 뒤 동일 사유의 첫 `details`를 선택했다. 생성 이력을 펼친 후 승인 이력이 목록 앞에 삽입되면 `.first()`가 새로 삽입된 닫힌 승인 이력을 가리킬 수 있다. 제품의 승인·감사 저장 문제로 해석하지 않는다.
+
+수정은 E2E 선택자와 보고서 실패 안내만 포함한다. B1에서 실제 후속 history GET을 gate로 지연하고 기존 CORRECTION_CREATED가 표시되는 동안 승인 이력이 아직 없음을 확인한다. gate 해제 후 `CORRECTION_APPROVED · B1 근거 재확인`이라는 특정 이벤트가 나타날 때까지 기다려 그 항목만 펼친다. 원래 전후 값·사유·처리자·승인 당시 확인값·DB/공개 JSON assertion은 유지하고 승인 action assertion도 추가한다. 응답은 `route.continue()`로 실제 서버에서 받으며 성공 응답을 mock하지 않는다. worker/retry/timeout/공개·보안·DB 규칙을 바꾸지 않았다.
+
+`--validate-report`의 기존 거부 조건을 유지하면서 원시 오류/요청 데이터 대신 통과/전체 건수·skip·exit·cleanup을 출력한다. 실제 실패 CI 보고서는 `passed=7/8; skipped=0; exit=1; cleanup=true`로 계속 거부했다. 별도 임시 경로에서 정상/0건/skip/정리 실패/비정상 종료/잘못된 시각/오래된 결과/빈 CI 시작 표식/잘못된 JSON 등 10가지 진입점 검사를 수행했고 모두 예상 결과였다.
+
+로컬 검증 명령은 `powershell.exe -NoProfile -File C:\workspace\sedanji\scripts\verify.ps1 -Frontend -E2E`, 전체 종료 **0**이다. Frontend 타입 검사·16개 파일/110개 테스트·빌드 PASS/0, E2E 별도 타입 검사와 지연 GET 회귀를 포함한 **8개 전부 PASS/0**, 실패/skip 0, cleanup true. E2E 실행은 **2026-11-07 19:46:53~19:47:49 KST**, 기준 HEAD는 e9fc70e 위 미커밋 수정, 소스 지문은 `60d5de0ad1360f49992635db026f68abc8a6068180011cc9bf2efca4e63b1b25`이다. Backend/Python은 실행 코드 변경이 없어 이번 로컬 수정 검증에서 NOT RUN이며 최초 CI success와 구분한다. 실제 외부 API 재호출·개발 DB·원격 재실행·커밋·Push는 하지 않았다.
+
+[CI 실패와 로컬 수정 근거 JSON](harness/evidence/issue-21-ci-fix-20261107.json)에 최초 FAIL과 수정 후 PASS를 함께 보존했다. 수정본의 GitHub Ubuntu CI 통과는 아직 확인하지 않았으며 로컬 성공으로 대체하지 않는다.
