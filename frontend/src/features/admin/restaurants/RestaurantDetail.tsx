@@ -9,11 +9,12 @@ export function sourceLink(videoId: string, seconds: number | null) {
 export function sourceTime(seconds: number | null) {
   return seconds === null ? '시점 미확인' : `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
 }
-export default function RestaurantDetail({ data, loading, error, drafts, draftsLoading, draftsError, onRetry, onDraftRetry, onBack, onAdd, onResume, onMentionPage, onDraftPage, onCorrection }: {
+export default function RestaurantDetail({ data, loading, error, drafts, draftsLoading, draftsError, onRetry, onDraftRetry, onBack, onAdd, onResume, onMentionPage, onDraftPage, onCorrection, onPublication }: {
   data?: Detail; loading: boolean; error?: unknown; drafts?: Page<Draft>; draftsLoading: boolean; draftsError?: unknown;
   onRetry: () => void; onDraftRetry: () => void; onBack: () => void; onAdd: (id: number) => void; onResume: (id: number) => void;
   onMentionPage: (page: number) => void; onDraftPage: (page: number) => void;
   onCorrection?: (target: CorrectionTarget) => void;
+  onPublication?: (id: number, action: 'suspend' | 'restore') => void;
 }) {
   const notFound = error instanceof ApiError && error.status === 404;
   return <section aria-label="관리자 식당 상세"><button className="secondary" onClick={onBack}>← 목록으로</button>
@@ -27,6 +28,7 @@ export default function RestaurantDetail({ data, loading, error, drafts, draftsL
       <div className="section-heading"><h3>셰프·영상 관계</h3><button onClick={() => onAdd(data.restaurant.id)}>관계 추가</button></div>
       {!data.mentions.items.length && <p className="empty">이 페이지에 실제 관계가 없습니다. 임시 저장 초안은 관계에 포함하지 않습니다.</p>}
       {data.mentions.items.map(mention => <article className="admin-relation" key={mention.id} aria-label={`관계 ${mention.id}`}>
+        {onPublication&&mention.verificationStatus==='APPROVED'&&<button onClick={()=>onPublication(mention.id,mention.publicationStatus==='PUBLISHED'?'suspend':'restore')}>관계 #{mention.id} 공개 {mention.publicationStatus==='PUBLISHED'?'중단':'복구'}</button>}
         {onCorrection&&<div><button onClick={()=>onCorrection({kind:'MENTION',id:mention.id})}>관계 #{mention.id} {mention.verificationStatus==='APPROVED'?'정정 · 이력':'이력'}</button><button onClick={()=>onCorrection({kind:'CHEF',id:mention.chef.id})}>셰프 #{mention.chef.id} 이름 정정 · 이력</button></div>}
         <div className="admin-relation-heading"><h4>{mention.chef.name} <small>셰프 ID {mention.chef.id} · 관계 ID {mention.id}</small></h4>
           <span className="admin-badge">{mention.mentionType === null ? '유형 미확인' : typeLabels[mention.mentionType]}</span>
@@ -45,7 +47,7 @@ export default function RestaurantDetail({ data, loading, error, drafts, draftsL
       {drafts && <>{drafts.items.map(draft => <article key={draft.id} className="admin-draft-row"><span>초안 #{draft.id} · 수정 {new Date(draft.updatedAt).toLocaleString('ko-KR')}</span><button className="secondary" onClick={() => onResume(draft.id)}>초안 #{draft.id} 이어쓰기</button></article>)}
         {!drafts.items.length && <p>작성 중인 초안이 없습니다.</p>}<nav aria-label="초안 페이지" className="admin-pagination"><span>전체 {drafts.totalElements}개</span>
           <button disabled={drafts.page === 0} onClick={() => onDraftPage(drafts.page - 1)}>이전 초안 페이지</button><button disabled={!drafts.hasNext} onClick={() => onDraftPage(drafts.page + 1)}>다음 초안 페이지</button></nav></>}
-      <p className="field-help">정정·공개 중단·복구·변경 이력과 실제 출처 확인은 후속 범위입니다.</p>
+      <p className="field-help">관계별로 공개를 중단하고 근거 재확인·명시적 재승인 후 복구할 수 있습니다. 실제 출처 자동 확인은 후속 범위입니다.</p>
     </>}
   </section>;
 }

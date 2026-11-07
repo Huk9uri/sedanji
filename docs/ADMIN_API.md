@@ -2,6 +2,37 @@
 
 갱신일: 2026-11-07. 상태: 현재 코드 계약과 목표 설계를 구분한 문서. 기준: [모델](DOMAIN_MODEL.md), [명세서](REQUIREMENTS.md).
 
+## #20 관계 단위 공개 제어 — 승인된 작업 트리
+
+Handoff v2 D1~D8 및 별도 구현 지시에 따라 추가했다. 아래는 현재 작업 트리 계약이며 배포·테스트 실행 성공을 의미하지 않는다. 기존 #19 및 그 이전 절은 각 작업 시점의 기록이다.
+
+| 메서드·경로 | 현재 책임 |
+| --- | --- |
+| GET `/api/admin/mentions/{id}/publication` | `mention`, `references`, `contextHash`, `latestControl`, `lastSuspendReason` |
+| POST `/api/admin/mentions/{id}/suspend` | APPROVED/PUBLISHED → APPROVED/SUSPENDED |
+| POST `/api/admin/mentions/{id}/restore` | 명시적 근거 재확인·재승인 후 APPROVED/SUSPENDED → APPROVED/PUBLISHED |
+| GET `/api/admin/mentions/{id}/history` | 기존 페이지 이력에 SUSPEND_MENTION·RESTORE_MENTION도 포함 |
+
+모두 관리자 세션·ADMIN 권한·DB 활성 관리자 검증을 적용한다. POST에는 기존 CSRF 및 필수 `Idempotency-Key`(공백 불가, 최대 128자)가 필요하다. 경로 ID는 양수 정수다.
+
+중단 본문은 `expectedVersion`(0 이상 정수), `reason`(trim 후 1~2,000자)만 받는다. 복구는 추가로 `expectedContextHash`(64자 소문자 SHA-256 hex), 실제 boolean true인 `evidenceRechecked`, 별도의 필수 `recheckNote`(trim 후 1~2,000자)를 받는다. 미지원 필드·숫자 문자열·소수·잘못된 타입은 거부한다. 체크 누락·false는 400 RECHECK_REQUIRED이며, 문자열 `"true"`는 400 INVALID_INPUT이다.
+
+확인 GET의 mention은 관계 상태·version·승인 정보·셰프/식당/영상 표시값·원본 후보/evidence를 포함하는 관리자 전용 스냅샷이다. references에는 Chef·Restaurant version 및 주소·Kakao ID·좌표·링크, Video 메타데이터가 있다. 이 전체 context를 키 정렬 후 hash한다. Video에는 현재 version 컬럼이 없으며 접근 판정 상태를 복구 허용 조건으로 삼지 않는다. 최근 제어 기록이나 중단 사유가 없으면 null이다. UI는 “중단 사유 기록 없음”으로 표시한다.
+
+성공은 200 JSON이며 `action`, `mentionId`, `restaurantId`, `previousVersion`, `version`, `verificationStatus`, `publicationStatus`, `auditEventId`, `occurredAt`을 반환한다. action은 SUSPEND_MENTION 또는 RESTORE_MENTION이다. 중단은 publicationStatus·version만 바꾸고, 복구는 추가로 reviewer·reviewedAt을 바꾼다. 유형·시점(null/0)·참조·검증 메모·원본 근거는 보존한다. 일반 정정은 공개 상태를 보존하며 이전 version 기준의 정정안은 공개 제어 후 충돌한다.
+
+오류 JSON은 `code`, `message`다. 400 INVALID_INPUT/RECHECK_REQUIRED, 403 ADMIN_INACTIVE, 404 RESOURCE_NOT_FOUND, 409 STALE_VERSION/CONTEXT_CHANGED/INVALID_STATE/ALREADY_SUSPENDED/ALREADY_PUBLISHED/IDEMPOTENCY_CONFLICT를 사용한다. Security의 빈 401·403은 유지한다. 유효 영수증 재생 후 version → 상태 → 복구 context 순서로 검증한다. 저장 오류는 서비스 프록시의 롤백 완료 후 안전한 충돌 오류로 변환하며 자동 재시도하지 않는다.
+
+관리자 행 잠금 → 기존 관리자별 영수증 확인 → 공통 CorrectionCoordinator 잠금 → Mention 행 잠금 → 전이·flush → 감사 → 24시간 성공 영수증을 한 트랜잭션으로 처리한다. 영수증은 다른 승인·정정 API와 키 공간을 공유하며 메서드·관계 ID를 포함한 경로·trim 정규화 본문을 식별한다. 동일 요청 재생은 과거 결과이며 현재 상태를 되돌리지 않는다. 다른 요청은 충돌하고 비활성 관리자는 재생도 불가하다. 만료 영수증 삭제도 실패 시 롤백한다.
+
+감사 beforeValue는 변경 전 관계 스냅샷, afterValue는 처리 관리자·변경 후 target·처리 전 references다. 복구에는 `publicationConfirmation`의 `schemaVersion`, `evidenceRechecked`, `recheckNote`, **적용 전 검증한** `validatedContextHash`가 추가된다. 사유·DB 처리 시각은 기존 감사 컬럼에 저장하고 응답·영수증의 auditEventId/occurredAt과 일치시킨다. 기존 감사는 수정·백필하지 않는다.
+
+공개 `/api/restaurants`의 식당·Source 모두 기존 APPROVED AND PUBLISHED 조건과 REPEATABLE_READ를 유지한다. 마지막 공개 관계가 없어지면 식당·지도·검색 결과에서 제외한다. 내부 사유·감사·관리자 정보를 공개 DTO에 추가하지 않는다. 관리자 전체 관계 수는 보존한다. 별도 공개 상세·모바일·저장 API는 추가하지 않았다.
+
+관리자 상세에서 관계별 dialog로 최신 상태·출처·유형·시점·사유·재확인 내용을 확인한다. 요청 중 동기 잠금, 불명확한 결과의 동일 키/경로/본문 확인, 실패 시 입력 보존·최신 GET 후 재확인을 제공한다. 성공은 관리자 목록·상세·이력과 공개 조회를 갱신한다. 공개 데이터는 즉시 비우고 이전 응답 및 다른 인증 세대의 응답을 폐기한다. 재조회 실패 시 이전 데이터를 복원하지 않으며 GET만 재시도한다.
+
+스키마: 기존 V1~V5·감사 JSON·영수증·상태 필드를 그대로 사용한다. 신규 migration·기존 migration 수정·백필 없음. 실제 DB의 V5 적용 여부는 미확인이다. 최초 실행 금지 이후 사용자 실행 승인으로 Backend 218개 테스트·bootJar, Frontend 타입 검사·110개 Vitest 테스트·빌드를 모두 PASS/0으로 확인했다. 컴파일 접근 범위·감사 시각 정밀도 수정 및 초기 환경/실패 이력은 구현 기록의 #20 절을 따른다. 신규 공개 제어 감사 시각은 기존 이력 조회와 같은 밀리초 정밀도로 저장하며 응답·영수증과 일치시킨다. 최초 자동 검증 당시 브라우저·개발/운영 DB·외부 API는 미실행이었다. 후속 사용자 승인으로 개발 DB V5 적용·기존 데이터 지문 보존과 관계 #1의 실제 브라우저 중단→목록/검색/마커 제외→재승인 복구·재표시를 확인했다. 최종 APPROVED/PUBLISHED version 2이며 승인 정보 갱신·감사 2건·영수증 2건을 보존한다. 운영 DB·외부 API·영상 재시청은 검증하지 않았다. 상세 범위는 구현 기록의 #20 후속 승인 절을 따른다.
+
 ## #19 정정·재승인·이력 — 승인된 작업 트리
 
 ### Handoff v3 — 승인 전 확인 감사·식당 rebase 보완

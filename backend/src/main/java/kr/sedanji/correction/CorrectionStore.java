@@ -16,14 +16,14 @@ public class CorrectionStore {
     public JdbcTemplate db() { return db; }
     public ObjectMapper mapper() { return mapper; }
     ObjectNode object() { return mapper.createObjectNode(); }
-    JsonNode parse(Object value) {
+    public JsonNode parse(Object value) {
         if(value==null)return mapper.getNodeFactory().nullNode();
         try {return mapper.readTree(value.toString());}catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("저장된 스냅샷 오류");}
     }
-    String json(Object value) {
+    public String json(Object value) {
         try{return mapper.writeValueAsString(value);}catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("스냅샷 저장 오류");}
     }
-    String hash(JsonNode value) {
+    public String hash(JsonNode value) {
         try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json(sorted(value)).getBytes(StandardCharsets.UTF_8)));}
         catch(java.security.NoSuchAlgorithmException e){throw new IllegalStateException(e);}
     }
@@ -47,7 +47,7 @@ public class CorrectionStore {
           left join restaurant_candidates rc on rc.id=m.restaurant_candidate_id left join import_jobs ij on ij.id=rc.import_job_id
           left join videos original_video on original_video.id=ij.video_id
         """;
-    ObjectNode snapshot(CorrectionKind kind,long id) {
+    public ObjectNode snapshot(CorrectionKind kind,long id) {
         String select=switch(kind) {
             case MENTION -> MENTION_SELECT+" where m.id=?";
             case CHEF -> "select id,version,name from chefs where id=?";
@@ -83,7 +83,7 @@ public class CorrectionStore {
         var out=mapper.createArrayNode();for(var f:CorrectionInput.editable(kind))if(!same(base.path(f),proposal.path(f)))out.add(f);return out;
     }
     boolean same(JsonNode left,JsonNode right){return left.isNumber()&&right.isNumber()?left.decimalValue().compareTo(right.decimalValue())==0:left.equals(right);}
-    ObjectNode references(CorrectionKind kind,JsonNode values) {
+    public ObjectNode references(CorrectionKind kind,JsonNode values) {
         var refs=object();if(kind!=CorrectionKind.MENTION)return refs;
         refs.set("chef",snapshot(CorrectionKind.CHEF,values.path("chefId").asLong()));
         refs.set("restaurant",snapshot(CorrectionKind.RESTAURANT,values.path("restaurantId").asLong()));

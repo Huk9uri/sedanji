@@ -2,6 +2,14 @@
 
 갱신일: 2026-11-07. 기준: [요구사항](REQUIREMENTS.md), [관리자 구현 계획](ADMIN_IMPLEMENTATION_PLAN.md), AGENTS.md.
 
+## #20 공개 중단·복구 — 기존 저장 모델 재사용
+
+Handoff v2 D1~D8 및 별도 파일 수정 지시에 따른 작업 트리다. ERD의 엔티티·관계·컬럼·제약은 변경하지 않는다. Mention의 APPROVED/PUBLISHED ↔ APPROVED/SUSPENDED 전이와 @Version, 기존 AdminAuditEvent의 before/after JSON·reason·actor·시각, AdminRequestReceipt의 관리자별 24시간 성공 결과를 사용한다. 새로운 migration·백필은 없으며 V1~V5는 보존한다. 실제 DB 적용 상태는 미확인이다.
+
+중단은 publicationStatus만 바꾸고 승인 정보·원본 근거를 보존한다. 복구는 별도 필수 재확인 내용과 context hash를 검증하고 reviewer·reviewedAt도 갱신한다. 이전 승인 정보는 감사 before에 보존한다. 기존 CORRECTION은 공개 상태를 보존하며 공개 제어의 version 증가로 기존 정정 기준이 충돌한다. 공유 Chef·Restaurant 정정과 같은 공통 트랜잭션 잠금을 사용한다. 공개 조건은 APPROVED AND PUBLISHED이며 마지막 공개 관계가 없는 Restaurant은 공개 조회에서 제외한다. 향후 저장 기록의 Restaurant 참조 유지 정책은 유지하며 저장 기능은 추가하지 않는다.
+
+API·화면·테스트 코드를 작성했고 이후 사용자 실행 승인으로 Backend 218개 테스트·bootJar, Frontend 타입 검사·110개 테스트·빌드를 PASS/0으로 확인했다. 이후 별도 사용자 승인으로 개발 DB에 기존 V5를 적용하고 기존 12개 테이블의 적용 전 컬럼·행 수·데이터 지문 보존을 확인했다. 관계 #1의 실제 브라우저 중단·재승인 복구와 공개 탐색 갱신도 확인했다. 최종 version 2, APPROVED/PUBLISHED이며 원본 근거를 보존하고 승인 정보·감사·영수증을 갱신했다. 운영 DB·외부 API·영상 재시청은 검증하지 않았다. 자세한 계약·실행 한계는 [API #20 절](ADMIN_API.md)을 따른다.
+
 ## #19 정정·공유 정보 Revision — 승인된 구현 범위
 
 Handoff v2 D1~D9 및 전체 구현 승인을 따른다. Mention CORRECTION은 기존 mention_drafts를 사용하고 base_snapshot·proposed_values·changed_fields·reference_snapshot·적용 정보를 확장한다. RestaurantRevision과 ChefRevision은 각각 대상 FK, 기준 version/스냅샷, 제안/변경 필드, 참조 스냅샷, 필수 사유, DRAFT/APPLIED·자체 version, 작성·수정·적용 관리자/시각을 가진다. 각 대상의 DRAFT는 부분 UNIQUE로 하나만 허용한다. 감사는 기존 append-only 테이블에서 정정안/Revision FK와 처리 당시 스냅샷을 보존한다. 신규 스키마는 V5이며 실제 DB 적용은 하지 않는다.

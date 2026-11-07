@@ -2,6 +2,9 @@ package kr.sedanji.mention;
 import java.util.List;
 import org.springframework.data.jpa.repository.*;
 public interface MentionRepository extends JpaRepository<MentionEntity, Long> {
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from MentionEntity m where m.id = :id")
+    java.util.Optional<MentionEntity> findForUpdate(long id);
     @EntityGraph(attributePaths = {"video", "chef", "restaurant", "candidate", "reviewer"})
     List<MentionEntity> findAllByOrderByIdDesc();
     @EntityGraph(attributePaths = {"video", "chef"})
