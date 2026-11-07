@@ -1,0 +1,289 @@
+{
+  "command": "powershell.exe -NoProfile -File C:/workspace/sedanji/scripts/verify.ps1 -Backend -Frontend -Python -E2E",
+  "node": "22.23.4",
+  "overallExitCode": 0,
+  "backend": {
+    "status": "PASS",
+    "exitCode": 0,
+    "counts": {
+      "tests": 218,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "reports": [
+      {
+        "file": "TEST-kr.sedanji.ApprovalIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:54:22.272Z",
+        "counts": {
+          "tests": 38,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "63296e67c28d9e393290122726ba0e4af510e74f7a9ef26f8b22a9f6e9f24ba2"
+      },
+      {
+        "file": "TEST-kr.sedanji.CandidateSeparationMigrationTest.xml",
+        "timestamp": "2026-11-07T09:54:27.677Z",
+        "counts": {
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "26802bd735a985dbe02dc5369aeccb14e781564c5c1b1d86443bccdf67fe4de1"
+      },
+      {
+        "file": "TEST-kr.sedanji.correction.CorrectionIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:55:07.026Z",
+        "counts": {
+          "tests": 21,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "b3a1a5697fa2b73dc726e988f940edb9d85b620be236fece355895cae14a2ba5"
+      },
+      {
+        "file": "TEST-kr.sedanji.CorrectionMigrationTest.xml",
+        "timestamp": "2026-11-07T09:54:31.617Z",
+        "counts": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "dce54637761ab2320700462aed0275f029585f08f239180eacad1c2f3ca37b57"
+      },
+      {
+        "file": "TEST-kr.sedanji.DescriptionExtractorTest.xml",
+        "timestamp": "2026-11-07T09:54:32.568Z",
+        "counts": {
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "250f17e386ff673ad4ac44da38d18a10449c2eecd248bb01a5256c4cd9dc4a1b"
+      },
+      {
+        "file": "TEST-kr.sedanji.DirectRegistrationIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:54:36.925Z",
+        "counts": {
+          "tests": 19,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "204479e6ed3baef1a08c4a2dc49636822cfb7815d7b353554224731e815d5e47"
+      },
+      {
+        "file": "TEST-kr.sedanji.DirectRegistrationMigrationTest.xml",
+        "timestamp": "2026-11-07T09:54:40.615Z",
+        "counts": {
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "89f5821da3ddf90e0e75c480a2d38049e46119412d125165a51139a3dad52ee0"
+      },
+      {
+        "file": "TEST-kr.sedanji.MentionDraftApprovalInputTest.xml",
+        "timestamp": "2026-11-07T09:54:43.984Z",
+        "counts": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "d487640b53f7de561e6a32eb63e9e88bc8dc237f2cd603c58c27a9b4ca2904df"
+      },
+      {
+        "file": "TEST-kr.sedanji.MentionDraftApprovalIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:54:47.918Z",
+        "counts": {
+          "tests": 31,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "91682919fdf2bd91a63113c1ed4ee7bedb466fd2a06c8ef820374268f96903e5"
+      },
+      {
+        "file": "TEST-kr.sedanji.MentionDraftInputTest.xml",
+        "timestamp": "2026-11-07T09:54:51.016Z",
+        "counts": {
+          "tests": 38,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "42a1d9053ac6092c5887260e6a9f8322d182a44eec8d7317ff6df3b980a13c05"
+      },
+      {
+        "file": "TEST-kr.sedanji.MentionDraftIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:54:54.426Z",
+        "counts": {
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "c439bf0e94d2dd93006031c4fe8755658ad63634d198242c17cae79d14daa420"
+      },
+      {
+        "file": "TEST-kr.sedanji.PlaceMatcherTest.xml",
+        "timestamp": "2026-11-07T09:54:56.229Z",
+        "counts": {
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "583579501c3f2f875f782c3b881a35a70725368182e3c8075f2af7a2b1b5758f"
+      },
+      {
+        "file": "TEST-kr.sedanji.PlaceSelectionServiceTest.xml",
+        "timestamp": "2026-11-07T09:54:56.351Z",
+        "counts": {
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "8daac9167b013245515e591b703ba6dcb0cf0b03bd32ca5ab39ae2535f14c2d0"
+      },
+      {
+        "file": "TEST-kr.sedanji.publication.PublicationIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:55:14.143Z",
+        "counts": {
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "34474f84ee413c2c5af7c5d9e8fb70c3fb2878ccd3cf1008c1433511a27255c2"
+      },
+      {
+        "file": "TEST-kr.sedanji.RegistrationTransactionTest.xml",
+        "timestamp": "2026-11-07T09:54:59.898Z",
+        "counts": {
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "709419245743f391735e005148f893350d16d1bcbf801c7a52588ae63ac537ea"
+      },
+      {
+        "file": "TEST-kr.sedanji.restaurant.AdminRestaurantIntegrationTest.xml",
+        "timestamp": "2026-11-07T09:55:19.811Z",
+        "counts": {
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "a9e07fbe079acc5492026cc00d026408dd5c6cdc7a904ffaff90398c6cdbd180"
+      },
+      {
+        "file": "TEST-kr.sedanji.video.VideoUrlTest.xml",
+        "timestamp": "2026-11-07T09:55:21.741Z",
+        "counts": {
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "2818dcaf92e0545282b0cb2baf84225c908efcd2dfb497303a2d72dec035f1e1"
+      },
+      {
+        "file": "TEST-kr.sedanji.VideoSourceCheckMigrationTest.xml",
+        "timestamp": "2026-11-07T09:55:02.379Z",
+        "counts": {
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "sha256": "2d3acb2750c29f02e72e38398c46b266787c999674d61a5007a6019eefd1f0f0"
+      }
+    ]
+  },
+  "frontend": {
+    "typecheck": {
+      "status": "PASS",
+      "exitCode": 0
+    },
+    "vitest": {
+      "status": "PASS",
+      "exitCode": 0,
+      "files": 16,
+      "tests": 110
+    },
+    "build": {
+      "status": "PASS",
+      "exitCode": 0
+    }
+  },
+  "python": {
+    "status": "PASS",
+    "exitCode": 0,
+    "tests": 30
+  },
+  "e2e": {
+    "started": "2026-11-07T09:56:00.590Z",
+    "finished": "2026-11-07T09:56:55.333Z",
+    "status": "passed",
+    "tests": [
+      {
+        "title": "A1 A2 최소 초안 → 서버 ID 재개 → null 시점 승인",
+        "status": "passed",
+        "duration": 6020
+      },
+      {
+        "title": "A3 초안 없는 직접 승인 · 0초 표시와 출처 URL",
+        "status": "passed",
+        "duration": 1755
+      },
+      {
+        "title": "B1 B4 관계 정정은 재승인 후 공개 · 원본 근거와 이력 보존",
+        "status": "passed",
+        "duration": 1629
+      },
+      {
+        "title": "B2 공유 셰프 영향 두 관계 확인 후 이름 재승인",
+        "status": "passed",
+        "duration": 1295
+      },
+      {
+        "title": "B3 공식 장소 전체 스냅샷 · null 포함 재승인",
+        "status": "passed",
+        "duration": 1494
+      },
+      {
+        "title": "C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구",
+        "status": "passed",
+        "duration": 2110
+      },
+      {
+        "title": "보안 실제 세션 로그인·로그아웃·서버 만료·CSRF 403",
+        "status": "passed",
+        "duration": 1450
+      },
+      {
+        "title": "충돌 두 실제 로그인 context · stale version과 입력 보존",
+        "status": "passed",
+        "duration": 2053
+      }
+    ],
+    "cleanup": true,
+    "exitCode": 0,
+    "head": "6c7c6e8d8ba017379f0cf9b4e67439d38005d516",
+    "worktreeSha256": "aa064334f5e15e560b5c6ed745a03d243a6fa68e50b4f5702f32c8e0dc521607"
+  },
+  "remoteCI": "NOT RUN",
+  "realExternalResult": "issue-21-external-20261107.json"
+}

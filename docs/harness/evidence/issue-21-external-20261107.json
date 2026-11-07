@@ -1,0 +1,105 @@
+{
+  "started": "2026-11-07T09:52:27.545Z",
+  "head": "6c7c6e8d8ba017379f0cf9b4e67439d38005d516",
+  "origin": "http://localhost:5173",
+  "query": "모리본",
+  "targetAddress": "서울 광진구 긴고랑로15길 6",
+  "videoId": "RMTJPFKRbEk",
+  "steps": [
+    {
+      "name": "isolated backend and IPv4 frontend ready",
+      "status": "PASS"
+    },
+    {
+      "name": "real session login on temporary admin",
+      "status": "PASS"
+    },
+    {
+      "name": "Kakao official place branch matched",
+      "status": "PASS",
+      "place": {
+        "id": "652535611",
+        "name": "모리본",
+        "roadAddress": "서울 광진구 긴고랑로15길 6",
+        "address": "서울 광진구 중곡동 39-64",
+        "longitude": 127.083176428393,
+        "latitude": 37.5622828427727
+      },
+      "totalCount": 2,
+      "complete": true
+    },
+    {
+      "name": "YouTube official metadata stored",
+      "status": "PASS",
+      "video": {
+        "id": "RMTJPFKRbEk",
+        "title": "돼르~한 세계여행 돼리만족 제대로인 남노의 국경 없는 먹방 (망원동 맛집, 광진구 맛집)ㅣ윤남노포 EP.47 [EN]",
+        "channelTitle": "스튜디오슬램",
+        "publishedAt": "2026-08-24T09:31:23Z"
+      }
+    },
+    {
+      "name": "same video reused with one external metadata lookup",
+      "status": "PASS"
+    },
+    {
+      "name": "temporary fixture persisted only in isolated DB",
+      "status": "PASS"
+    },
+    {
+      "name": "real Kakao SDK marker 1→0→1 and selection pan",
+      "status": "PASS",
+      "sdkHttp200": 1
+    },
+    {
+      "name": "source navigation without playback",
+      "status": "PASS",
+      "url": "https://www.youtube.com/watch?v=RMTJPFKRbEk",
+      "httpStatus": 200
+    },
+    {
+      "name": "source navigation without playback",
+      "status": "PASS",
+      "url": "https://www.youtube.com/watch?v=RMTJPFKRbEk&t=0s",
+      "httpStatus": 200
+    },
+    {
+      "name": "source navigation without playback",
+      "status": "PASS",
+      "url": "https://www.youtube.com/watch?v=RMTJPFKRbEk&t=793s",
+      "httpStatus": 200
+    },
+    {
+      "name": "base/zero/13:13 source navigation, no media playback",
+      "status": "PASS"
+    }
+  ],
+  "cleanup": true,
+  "budget": {
+    "kakaoSearches": 1,
+    "kakaoHttpMaximum": 3,
+    "youtubeLookups": 1
+  },
+  "blockedMediaRequests": 19,
+  "finished": "2026-11-07T09:53:18.671Z",
+  "status": "PASS",
+  "runtime": {
+    "node": "22.23.4",
+    "playwright": "1.65.0",
+    "database": "fresh postgres:17-alpine Testcontainers",
+    "frontendBinding": "127.0.0.1:5173; localhost resolved to IPv4 only in verification Chromium",
+    "preservedExistingServer": "[::1]:5173"
+  },
+  "sourceSha256": {
+    "backend/src/test/java/kr/sedanji/ExternalConnectionLauncher.java": "bd8d83d5bf671e8ac2d3e0cc1d2aeefa167efe4dab46aa3fd909fcdd5b95b149",
+    "backend/src/test/java/kr/sedanji/E2eLauncher.java": "08144b1907bf2764f5a901c0c018004b81980cbce36df5f2a07b14bef782c205",
+    "backend/build.gradle": "a48a2313f0670d5c87256d3a5028b97f3c156ff09af2f4bb88972c3a869c2241",
+    ".tools/run-external-check.mjs": "a04d7f461769c2e50c5ee31a70276baddc5cd4da52fd70138cd901440c4c17f0"
+  },
+  "limitations": [
+    "Kakao HTTP count not instrumented: one search, existing adapter upper bound 3 HTTP calls",
+    "Temporary relationship is explicitly labeled connection-only fixture, not a verified real chef recommendation",
+    "YouTube navigation HTTP 200 does not establish video playback, semantic evidence or source accessibility classification",
+    "No production/development database mutation; no real API replay after this execution"
+  ]
+}
