@@ -12,3 +12,8 @@ target/
 backend/build/
 .idea/
 backend/bin/
+frontend/test-results/
+frontend/playwright-report/
+**/storageState*.json
+**/*.har
+**/trace.zip
