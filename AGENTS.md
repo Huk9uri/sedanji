@@ -32,7 +32,7 @@
 | 검증 | JUnit 5·Mockito·Testcontainers, Vitest·RTL, TypeScript strict·noEmit 설정, Python unittest, `.github/workflows/ci.yml`의 Backend·Frontend·Python 검사 | Playwright는 핵심 흐름 구현 후 도입 계획. Frontend lint 스크립트 없음. CI·타입 검사 실제 실행 성공 여부는 별도 확인 |
 
 - `frontend/package.json`은 버전 범위, `frontend/package-lock.json`은 잠금 버전의 근거다. 실행 환경 버전과 구분한다.
-- 현재 웹은 공개 지도와 관리자가 함께 있는 프로토타입이다. 사용자 모바일·관리자 웹의 목표 구조로 전환 완료했다고 표현하지 않는다.
+- 현재 웹은 공개 지도와 관리자가 함께 있는 프로토타입이다. 2026-11-08 사용자 합의로 W1 반응형 공개 웹 MVP를 우선한다. 비로그인 지도·위치/기본 지역·영역 재검색·셰프 필터·상세·공식 YouTube 링크·공개 준비가 범위이며 로그인·저장·제보·광역 클러스터·내부 영상 재생은 후속이다. M2 모바일은 보류하되 기존 요구·Issue를 보존한다. `docs/REQUIREMENTS.md`와 `docs/IMPLEMENTATION_PLAN.md`를 따르며 문서 갱신을 기능 구현·배포 완료나 실행 승인으로 간주하지 않는다.
 - `docs/ADMIN_API.md`는 현재 코드 계약과 목표 설계를 구분한다. 현재 계약은 Controller·DTO·소비 코드·테스트로 확인하고 목표 절을 현재 동작으로 간주하지 않는다. #14의 CREATE 초안 생성·단건 조회·식당별 페이지 목록·부분 수정과 감사·생성 멱등성·버전 충돌 처리는 구현됐다. #15의 CREATE 초안 승인·APPLIED 연결·승인 감사·24시간 멱등 재생도 구현됐다. 정정·공유 정보 재승인·이력과 관리자 UI는 #19 작업 트리에 추가했으며 실행 검증 결과는 구현 기록의 #19 절을 따른다. 공개 제어는 후속이며 기존 직접 승인은 초안 없이 유지한다. `docs/ADMIN_IMPLEMENTATION_PLAN.md`의 과거 점검표를 최신 구현으로 간주하지 않는다.
 - 기술 스택 변경은 이유와 영향을 설명하고 승인받는다. 하네스 정비를 이유로 기술 전환이나 앱 재구성을 수행하지 않는다.
 - #16 관리자 식당 조회는 `restaurant/AdminRestaurantController`·QueryService·JDBC QueryRepository가 담당한다. 모든 실제 관계로 검색·집계하고 초안·후보는 제외하며 응답별 readOnly REPEATABLE_READ를 사용한다. `needsSourceReview`의 null은 미확인 또는 출처 없음이며 정상으로 해석하지 않는다. V4 저장 모델·필터 존재를 실제 영상 접근 문제 탐지·갱신 완료로 표현하지 않는다.
