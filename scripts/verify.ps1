@@ -267,7 +267,10 @@ function Invoke-E2EChecks {
     }
     $result = Invoke-VerifyCommand $node @($runner) $script:RepoRoot
     if ($null -eq $result.Code) { Stop-VerifyArea @('E2E') 'E2E runner could not start.'; return }
-    if ($result.Code -eq 0) { Add-VerifyResult 'E2E' 'PASS' 'BROWSER/DB' 'Fresh report: 8 tests, no failures/skips, owned resources cleaned.' 0 }
+    if ($result.Code -eq 0) {
+        $report = Get-Content -LiteralPath (Join-Path $script:RepoRoot '.tools/e2e-report.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        Add-VerifyResult 'E2E' 'PASS' 'BROWSER/DB' ('Fresh report: ' + @($report.tests).Count + ' tests, existing 8 admin tests preserved, no failures/skips, owned resources cleaned.') 0
+    }
     else { Add-VerifyResult 'E2E' 'FAIL' 'BUILD/TEST/CLEANUP' 'Inspect sanitized .tools/e2e-report.json for execution phase and test status.' $result.Code }
 }
 

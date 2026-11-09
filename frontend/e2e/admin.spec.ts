@@ -22,7 +22,11 @@ async function isolate(context: BrowserContext) {
     return url.origin === 'http://127.0.0.1:18173' ? route.continue() : route.abort();
   });
 }
-test.beforeEach(async ({ context }) => { await isolate(context); });
+test.beforeEach(async ({ context }) => {
+  await isolate(context);
+  await context.addInitScript(() => Object.defineProperty(navigator, 'geolocation', { configurable: true,
+    value: { getCurrentPosition: (success: PositionCallback) => success({ coords: { latitude: 37, longitude: 127 } } as GeolocationPosition) } }));
+});
 async function login(page: Page, username = 'e2e-admin') {
   await page.goto('/');
   await page.getByRole('button', { name: '관리자', exact: true }).click();
@@ -219,8 +223,10 @@ test('C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구', async (
   const id = original.mentions[1].id;
   await expect(page.getByText('공개 관계 0 / 전체 관계 2', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '맛집 지도', exact: true }).click();
-  await page.getByLabel('식당, 지역, 셰프 검색').fill('C 식당');
-  await expect(page.locator('.restaurants .restaurant')).toHaveCount(0);
+  await page.getByRole('button', { name: '내 위치로 시작', exact: true }).click();
+  await expect(page.getByText(/조회 결과 조건/)).toBeVisible();
+  await expect(page.getByText('식당 조회 중', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.public-results').getByRole('button', { name: 'C 식당', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '관리자', exact: true }).click(); await detail(page, 'C 식당');
   await page.getByRole('button', { name: `관계 #${id} 공개 복구`, exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '관계 공개 제어' });
@@ -242,8 +248,7 @@ test('C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구', async (
   await expect(dialog.getByText('C 명시적 복구', { exact: true }).first()).toBeVisible();
   await dialog.getByRole('button', { name: '닫기', exact: true }).click();
   await page.getByRole('button', { name: '맛집 지도', exact: true }).click();
-  await page.getByLabel('식당, 지역, 셰프 검색').fill('C 식당');
-  await expect(page.locator('.restaurants .restaurant')).toHaveCount(1);
+  await expect(page.locator('.public-results').getByRole('button', { name: 'C 식당', exact: true })).toBeVisible();
 });
 
 test('보안 실제 세션 로그인·로그아웃·서버 만료·CSRF 403', async ({ page }) => {
