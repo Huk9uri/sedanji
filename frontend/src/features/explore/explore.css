@@ -1,0 +1,27 @@
+.public-explore { padding: 1rem; }
+.public-explore[hidden] { display: none; }
+.location-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.location-controls p { margin: .5rem 0; }
+.public-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); height: min(780px, 76vh); min-height: 480px; gap: 1rem; }
+.public-panel { min-width: 0; overflow: auto; padding: 1rem; background: #fffdf8; border: 1px solid #dfd8ca; border-radius: 16px; }
+.public-panel h1 { font-size: 1.6rem; }
+.chef-filter label { display: block; margin-bottom: .6rem; }
+.chef-filter input, .chef-filter select { display: block; width: 100%; min-width: 0; }
+.public-panel button, .location-controls button { min-height: 44px; }
+.public-panel p { overflow-wrap: anywhere; }
+.public-results { overflow: auto; max-height: 45vh; }
+.public-results article, .public-panel section article { border-bottom: 1px solid #ddd5c6; padding: .8rem 0; }
+.public-map { position: relative; min-width: 0; min-height: 320px; background: #e8e7df; border-radius: 16px; overflow: hidden; }
+.public-map-canvas { width: 100%; height: 100%; min-height: 320px; }
+.map-failure, .overlap { position: absolute; z-index: 2; bottom: 1rem; left: 1rem; right: 1rem; padding: 1rem; background: #fffdf8; border-radius: 12px; }
+.overlap { display: grid; max-height: 60%; overflow: auto; gap: .4rem; }
+.selected-chef { border-left: 4px solid #65794c; padding-left: .6rem !important; }
+.result-condition { font-size: .85rem; }
+@media (max-width: 899px) {
+  .public-layout { display: flex; flex-direction: column; height: auto; gap: .5rem; }
+  .public-map { order: 0; height: 42vh; min-height: 280px; }
+  .public-map-canvas { min-height: 280px; }
+  .public-panel { order: 1; max-height: 53vh; }
+  .public-results { max-height: 32vh; }
+  .public-explore { padding: .5rem; }
+}
