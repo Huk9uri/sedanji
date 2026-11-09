@@ -3,6 +3,7 @@ package kr.sedanji;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -28,6 +29,7 @@ class SecurityConfig {
     }
     @Bean SecurityFilterChain security(HttpSecurity http) throws Exception {
         return http.authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/api/public/restaurants", "/api/public/restaurants/{id}", "/api/public/chefs").permitAll()
                 .requestMatchers("/api/restaurants", "/api/csrf", "/api/session", "/api/login", "/error").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN").anyRequest().denyAll())
             .formLogin(login -> login.loginProcessingUrl("/api/login")
