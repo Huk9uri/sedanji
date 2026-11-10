@@ -79,18 +79,29 @@ async function until(check, timeout = 180_000) {
   }
   throw new Error('Readiness deadline exceeded');
 }
+function completeReport(value) {
+  const expected = value.expectedTests;
+  const tests = value.tests;
+  if (!Array.isArray(expected) || !Array.isArray(tests) || expected.length !== tests.length ||
+      expected.filter(t => t.file === 'admin.spec.ts').length !== 8 ||
+      !expected.some(t => t.file === 'public.spec.ts')) return false;
+  const identity = t => JSON.stringify([t.file, t.title]);
+  const wanted = new Set(expected.map(identity));
+  return wanted.size === expected.length && new Set(tests.map(identity)).size === tests.length &&
+    tests.every(t => t.status === 'passed' && wanted.has(identity(t)));
+}
 function validate() {
   const value = JSON.parse(readFileSync(report, 'utf8'));
   const startedAt = Date.parse(value.started), finishedAt = Date.parse(value.finished);
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt ||
       statSync(report).mtimeMs < startedAt || value.status !== 'passed' ||
-      !Array.isArray(value.tests) || value.tests.length !== 8 || value.tests.some(t => t.status !== 'passed') ||
+      !completeReport(value) ||
       value.exitCode !== 0 || value.cleanup !== true) throw new Error('Fresh complete E2E report required');
   if ('SEDANJI_E2E_AFTER' in process.env) {
     const after = Number(process.env.SEDANJI_E2E_AFTER);
     if (!Number.isFinite(after) || after <= 0 || startedAt < after) throw new Error('Stale report or missing CI start marker');
   }
-  console.log('PASS: E2E 8 tests; no failures/skips; cleanup confirmed');
+  console.log(`PASS: E2E ${value.tests.length} tests; existing 8 admin tests preserved; no failures/skips; cleanup confirmed`);
 }
 if (process.argv.includes('--validate-report')) {
   try { validate(); process.exit(0); } catch {
@@ -179,7 +190,7 @@ try {
   if (directory) rmSync(directory, { recursive: true, force: true });
   let result = { started, finished: new Date().toISOString(), status: 'not-run', tests: [] };
   if (existsSync(report)) try { result = JSON.parse(readFileSync(report, 'utf8')); } catch { /* fail guard below */ }
-  const complete = result.status === 'passed' && result.tests.length === 8 && result.tests.every(t => t.status === 'passed');
+  const complete = result.status === 'passed' && completeReport(result);
   Object.assign(result, { cleanup, exitCode: failure || !cleanup || !complete ? 1 : 0, failure });
   try {
     const current = fingerprint();
