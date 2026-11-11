@@ -6,7 +6,7 @@ export interface Area { items: Item[]; query: Query; returnedCount: number; limi
 export interface Page<T> { items: T[]; totalElements: number; page: number; size: number; hasNext: boolean }
 export interface ChefItem extends Chef { restaurantCount: number }
 export interface Source { mentionId: number; chef: Chef; mentionType: 'REGULAR' | 'RECOMMENDED' | 'VISITED' | 'MENTIONED'; video: { id: string; title: string; channelTitle: string; publishedAt: string }; timestampSeconds: number | null }
-export interface Detail { id: number; name: string; kakaoPlaceId: string; roadAddress: string | null; address: string | null; latitude: number; longitude: number; placeUrl: string; sources: Page<Source> }
+export interface Detail { restaurant: { id: number; name: string; kakaoPlaceId: string; roadAddress: string | null; address: string | null; latitude: number; longitude: number; placeUrl: string }; sources: Page<Source> }
 export const defaultCenter = { latitude: 37.5665, longitude: 126.9780 };
 // Explicit fallback rectangle, never described as SDK camera bounds.
 export function initialBounds(center: typeof defaultCenter): Bounds {

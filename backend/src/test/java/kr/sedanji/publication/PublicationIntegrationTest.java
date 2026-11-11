@@ -116,6 +116,39 @@ class PublicationIntegrationTest {
         assertThat(getJson("/api/admin/restaurants/"+r2).path("summary").path("publicRelationCount").asInt()).isEqualTo(1);
         verifyNoInteractions(external);
     }
+    @Test void publicExplorationTracksRealSuspendAndRestoreRequests() throws Exception {
+        String area = "/api/public/restaurants?west=126.9&south=36.9&east=127.1&north=37.1";
+        String chefs = "/api/public/chefs";
+        String first = "/api/public/restaurants/" + r1;
+        String second = "/api/public/restaurants/" + r2;
+        assertThat(getJson(first).at("/sources/totalElements").asInt()).isEqualTo(2);
+        assertThat(getJson(chefs).at("/items/0/restaurantCount").asInt()).isEqualTo(2);
+
+        postJson(m1,"suspend",suspend(0),"explore-first",200);
+        var remaining = getJson(first).path("sources");
+        assertThat(remaining.path("totalElements").asInt()).isEqualTo(1);
+        assertThat(remaining.at("/items/0/mentionId").asLong()).isEqualTo(m2);
+        assertThat(getJson(area).at("/items/0/id").asLong()).isEqualTo(r1);
+
+        postJson(m3,"suspend",suspend(0),"explore-last",200);
+        var visible = getJson(area);
+        assertThat(visible.path("returnedCount").asInt()).isEqualTo(1);
+        assertThat(visible.at("/items/0/id").asLong()).isEqualTo(r1);
+        assertThat(getJson(area + "&chefId=" + c1).path("items").isEmpty()).isTrue();
+        assertThat(getJson(chefs).path("totalElements").asInt()).isEqualTo(1);
+        assertThat(getJson(chefs).at("/items/0/id").asLong()).isEqualTo(c2);
+        mvc.perform(get(second).with(anonymous())).andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+
+        postJson(m3,"restore",restore(m3,"admin"),"explore-restore",200);
+        assertThat(getJson(area).path("returnedCount").asInt()).isEqualTo(2);
+        assertThat(getJson(area + "&chefId=" + c1).at("/items/0/id").asLong()).isEqualTo(r2);
+        var restoredChef = getJson(chefs + "?query=중단 전용 셰프");
+        assertThat(restoredChef.at("/items/0/id").asLong()).isEqualTo(c1);
+        assertThat(restoredChef.at("/items/0/restaurantCount").asInt()).isEqualTo(1);
+        assertThat(getJson(second).at("/sources/items/0/mentionId").asLong()).isEqualTo(m3);
+        verifyNoInteractions(external);
+    }
     @Test void restorationReapprovesAndAuditsTheValidatedPreApplyHashThenOldReceiptCannotUndoIt()throws Exception {
         var initial=snapshot(m1);var suspended=postJson(m1,"suspend",suspend(0),"roundtrip",200);
         var request=restore(m1,"publication-other");String h0=request.get("expectedContextHash").toString();
@@ -165,6 +198,8 @@ class PublicationIntegrationTest {
         String suspendPath=path(m1,"suspend"),readPath=path(m1,"publication");
         mvc.perform(get(readPath).with(anonymous())).andExpect(status().isUnauthorized());
         mvc.perform(get(readPath).with(user("user").roles("USER"))).andExpect(status().isForbidden());
+        mvc.perform(post(suspendPath).with(anonymous()).with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(post(suspendPath).with(user("user").roles("USER")).with(csrf())).andExpect(status().isForbidden());
         mvc.perform(post(suspendPath).contentType("application/json").content("{}")).andExpect(status().isForbidden());
         mvc.perform(post(suspendPath).with(csrf()).contentType("application/json").content(store.json(suspend(0)))).andExpect(status().isBadRequest());
         for(Object version:List.of("0",0.5,-1,true))postJson(m1,"suspend",Map.of("expectedVersion",version,"reason","사유"),UUID.randomUUID().toString(),400);

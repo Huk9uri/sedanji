@@ -52,17 +52,16 @@ public class PublicQueryRepository {
     }
     public Detail detail(long id, PublicInput.Page q) {
         var places=db.query("SELECT r.* FROM restaurants r WHERE r.id=:id AND EXISTS (SELECT 1 FROM mentions m WHERE m.restaurant_id=r.id AND "+PUBLIC+")",
-            Map.of("id",id),(rs,i)->new Detail(rs.getLong("id"),rs.getString("name"),rs.getString("kakao_place_id"),rs.getString("road_address"),rs.getString("address"),
-                rs.getDouble("latitude"),rs.getDouble("longitude"),rs.getString("place_url"),null));
-        if (places.isEmpty()) throw new PublicInput.Failure(404,"NOT_FOUND","공개된 식당을 찾을 수 없습니다.");
+            Map.of("id",id),(rs,i)->new Restaurant(rs.getLong("id"),rs.getString("name"),rs.getString("kakao_place_id"),rs.getString("road_address"),rs.getString("address"),
+                rs.getDouble("latitude"),rs.getDouble("longitude"),rs.getString("place_url")));
+        if (places.isEmpty()) throw new PublicInput.Failure(404,"RESOURCE_NOT_FOUND","공개된 식당을 찾을 수 없습니다.");
         var p=Map.of("id",id,"size",q.size(),"offset",(long)q.page()*q.size());
         long count=db.queryForObject("SELECT count(*) FROM mentions m WHERE m.restaurant_id=:id AND "+PUBLIC,p,Long.class);
         var sources=db.query("SELECT m.id,m.chef_id,c.name,m.mention_type,m.timestamp_seconds,v.id AS video_id,v.title,v.channel_title,v.published_at"
             +" FROM mentions m JOIN chefs c ON c.id=m.chef_id JOIN videos v ON v.id=m.video_id WHERE m.restaurant_id=:id AND "+PUBLIC
             +" ORDER BY m.id ASC LIMIT :size OFFSET :offset",p,(rs,i)->new Source(rs.getLong("id"),new Chef(rs.getLong("chef_id"),rs.getString("name")),
                 rs.getString("mention_type"),new Video(rs.getString("video_id"),rs.getString("title"),rs.getString("channel_title"),rs.getObject("published_at",OffsetDateTime.class)),rs.getObject("timestamp_seconds",Integer.class)));
-        var r=places.get(0);
-        return new Detail(r.id(),r.name(),r.kakaoPlaceId(),r.roadAddress(),r.address(),r.latitude(),r.longitude(),r.placeUrl(),
+        return new Detail(places.get(0),
             new Page<>(sources,count,q.page(),q.size(),((long)q.page()+1)*q.size()<count));
     }
 }

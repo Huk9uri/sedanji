@@ -14,6 +14,7 @@ public final class PublicResult {
     public record Page<T>(List<T> items, long totalElements, int page, int size, boolean hasNext) {}
     public record Video(String id, String title, String channelTitle, OffsetDateTime publishedAt) {}
     public record Source(long mentionId, Chef chef, String mentionType, Video video, Integer timestampSeconds) {}
-    public record Detail(long id, String name, String kakaoPlaceId, String roadAddress, String address,
-                         double latitude, double longitude, String placeUrl, Page<Source> sources) {}
+    public record Restaurant(long id, String name, String kakaoPlaceId, String roadAddress, String address,
+                         double latitude, double longitude, String placeUrl) {}
+    public record Detail(Restaurant restaurant, Page<Source> sources) {}
 }

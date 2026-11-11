@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -28,7 +30,7 @@ class PublicIntegrationTest {
         r.add("spring.datasource.url",postgres::getJdbcUrl); r.add("spring.datasource.username",postgres::getUsername); r.add("spring.datasource.password",postgres::getPassword);
     }
     @Autowired MockMvc mvc; @Autowired ObjectMapper mapper; @Autowired JdbcTemplate db;
-    @Autowired NamedParameterJdbcTemplate named;
+    @MockitoSpyBean NamedParameterJdbcTemplate named;
     @Autowired PlatformTransactionManager transactions;
     @Autowired PublicQueryService service;
     @MockitoSpyBean PublicQueryRepository repository;
@@ -60,6 +62,7 @@ class PublicIntegrationTest {
     @Test void inclusiveBoundsDistinctRestaurantsAndGlobalChefs() throws Exception {
         mvc.perform(get(AREA)).andExpect(header().string("Cache-Control","no-store"));
         assertThat(ids(json(AREA))).containsExactly(restaurants[0],restaurants[1],restaurants[4],restaurants[5],restaurants[6]);
+        assertThat(ids(json(AREA+"&chefId="+c1))).containsExactly(restaurants[0],restaurants[1],restaurants[4],restaurants[5],restaurants[6]);
         var filtered=json(AREA+"&chefId="+c2); assertThat(ids(filtered)).containsExactly(restaurants[0]);
         assertThat(filtered.at("/items/0/chefCount").asLong()).isEqualTo(2);
         var chefs=json("/api/public/chefs"); assertThat(chefs.at("/items/0/restaurantCount").asLong()).isEqualTo(6);
@@ -70,19 +73,35 @@ class PublicIntegrationTest {
     }
     @Test void sourcePagingVisibilityAndLegacyShape() throws Exception {
         String path="/api/public/restaurants/"+restaurants[0];
-        var detail=json(path); assertThat(detail.at("/sources/totalElements").asInt()).isEqualTo(3);
+        var detail=json(path);
+        var rootFields=new ArrayList<String>(); detail.fieldNames().forEachRemaining(rootFields::add);
+        assertThat(rootFields).containsExactlyInAnyOrder("restaurant","sources");
+        assertThat(detail.at("/restaurant/id").asLong()).isEqualTo(restaurants[0]);
+        assertThat(detail.at("/restaurant/name").asText()).isEqualTo("R0");
+        assertThat(detail.at("/restaurant/roadAddress").asText()).isEqualTo("도로");
+        assertThat(detail.at("/sources/page").asInt(-1)).isZero();
+        assertThat(detail.at("/sources/size").asInt()).isEqualTo(20);
+        assertThat(detail.at("/sources/totalElements").asInt()).isEqualTo(3);
         assertThat(detail.at("/sources/items/0/timestampSeconds").isNull()).isTrue();
-        assertThat(detail.at("/sources/items/1/timestampSeconds").asInt()).isZero();
+        assertThat(detail.at("/sources/items/1/timestampSeconds").asInt(-1)).isZero();
         assertThat(detail.at("/sources/items/2/timestampSeconds").asInt()).isEqualTo(793);
         assertThat(json(path+"?sourcePage=8").at("/sources/items").isEmpty()).isTrue();
-        for(String field:List.of("evidence","reviewNote","reviewedBy","sourceCheckStatus","description","extractionWarning")) {
-            assertThat(detail.toString()).doesNotContain('"'+field+'"'); assertThat(json("/api/restaurants").toString()).doesNotContain('"'+field+'"');
+        var areaJson=json(AREA);
+        var chefJson=json("/api/public/chefs");
+        var legacyJson=json("/api/restaurants");
+        for(String field:List.of("evidence","reviewNote","reviewedBy","sourceCheckStatus","description","extractionWarning","candidateId","publicationStatus","verificationStatus")) {
+            assertThat(areaJson.toString()).doesNotContain('"'+field+'"');
+            assertThat(chefJson.toString()).doesNotContain('"'+field+'"');
+            assertThat(detail.toString()).doesNotContain('"'+field+'"'); assertThat(legacyJson.toString()).doesNotContain('"'+field+'"');
         }
-        assertThat(json("/api/restaurants").isArray()).isTrue();
+        assertThat(legacyJson.isArray()).isTrue();
         db.update("update mentions set publication_status='SUSPENDED' where restaurant_id=? and chef_id=?",restaurants[0],c1);
         assertThat(json(path).at("/sources/totalElements").asInt()).isEqualTo(1);
         db.update("update mentions set publication_status='SUSPENDED' where restaurant_id=?",restaurants[0]);
         var hidden=mvc.perform(get(path)).andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString();
+        var error=mapper.readTree(hidden);
+        assertThat(error.path("code").asText()).isEqualTo("RESOURCE_NOT_FOUND");
+        assertThat(error.path("message").asText()).isEqualTo("공개된 식당을 찾을 수 없습니다.");
         assertThat(mvc.perform(get("/api/public/restaurants/9223372036854775807")).andExpect(status().isNotFound()).andReturn().getResponse().getContentAsString()).isEqualTo(hidden);
         assertThat(ids(json(AREA))).doesNotContain(restaurants[0]);
         db.update("update mentions set publication_status='PUBLISHED' where restaurant_id=?",restaurants[0]); assertThat(ids(json(AREA))).contains(restaurants[0]);
@@ -96,6 +115,7 @@ class PublicIntegrationTest {
         var preview=json(AREA).at("/items/0");
         assertThat(preview.get("chefs").size()).isEqualTo(3); assertThat(preview.get("chefCount").asLong()).isEqualTo(4);
         assertThat(preview.get("hasMoreChefs").asBoolean()).isTrue();
+        assertThat(ids(json("/api/public/chefs"))).containsExactly(c1,c2,same.get(0),same.get(1));
         var first=json("/api/public/chefs?query=동명&size=1"); var second=json("/api/public/chefs?query=동명&size=1&page=1");
         assertThat(first.get("totalElements").asLong()).isEqualTo(2); assertThat(first.get("hasNext").asBoolean()).isTrue();
         assertThat(first.at("/items/0/id").asLong()).isEqualTo(same.get(0)); assertThat(second.at("/items/0/id").asLong()).isEqualTo(same.get(1));
@@ -105,18 +125,28 @@ class PublicIntegrationTest {
     }
     @Test void limitAndTruncation() throws Exception {
         db.update("update mentions set publication_status='SUSPENDED'");
+        var empty=json(AREA);
+        assertThat(empty.path("returnedCount").asInt(-1)).isZero();
+        assertThat(empty.path("truncated").asBoolean()).isFalse();
+        assertThat(empty.path("totalCount").isNull()).isTrue();
         for(int i=0;i<200;i++) {
             long id=place("상한"+i,126.97,37.56);
             db.update("insert into mentions(restaurant_id,chef_id,video_id,mention_type,verification_status,publication_status,reviewed_by,reviewed_at) values (?,?,?,'VISITED','APPROVED','PUBLISHED',?,now())",id,c1,videos[0],admin);
         }
-        assertThat(json(AREA).get("truncated").asBoolean()).isFalse();
+        var full=json(AREA);
+        assertThat(full.path("returnedCount").asInt()).isEqualTo(200);
+        assertThat(ids(full)).hasSize(200).isSorted();
+        assertThat(full.path("truncated").asBoolean()).isFalse();
+        assertThat(full.path("totalCount").isNull()).isTrue();
         long last=place("201",126.97,37.56);
         db.update("insert into mentions(restaurant_id,chef_id,video_id,mention_type,verification_status,publication_status,reviewed_by,reviewed_at) values (?,?,?,'VISITED','APPROVED','PUBLISHED',?,now())",last,c1,videos[0],admin);
         var result=json(AREA); assertThat(result.get("returnedCount").asInt()).isEqualTo(200); assertThat(result.get("truncated").asBoolean()).isTrue(); assertThat(result.get("totalCount").isNull()).isTrue();
         assertThat(ids(result)).doesNotContain(last);
     }
     @Test void invalidQueryAndSecurity() throws Exception {
-        for(String path:List.of("/api/public/restaurants",AREA+"&west=126.9",AREA+"&chefId=0",AREA+"&extra=1",AREA.replace("126.96","NaN"),AREA.replace("126.99","Infinity"),"/api/public/chefs?size=101","/api/public/restaurants/1?sourcePage=-1")) mvc.perform(get(path)).andExpect(status().isBadRequest());
+        for(String path:List.of("/api/public/restaurants",AREA+"&west=126.9",AREA+"&chefId=0",AREA+"&extra=1",AREA.replace("126.96","NaN"),AREA.replace("126.99","Infinity"),"/api/public/chefs?size=101","/api/public/restaurants/1?sourcePage=-1","/api/public/restaurants/0"))
+            mvc.perform(get(path)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_QUERY"));
+        mvc.perform(get("/api/public/restaurants?west=126.75&south=37.4&east=127&north=37.6")).andExpect(status().isOk());
         mvc.perform(get(AREA.replace("126.99","127.99"))).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("VIEWPORT_TOO_WIDE"));
         mvc.perform(get("/api/admin/restaurants")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/public/restaurants")).andExpect(status().isForbidden());
@@ -138,6 +168,55 @@ class PublicIntegrationTest {
             assertThat(service.detail(restaurants[0],new PublicInput.Page("",0,20)).sources().totalElements()).isEqualTo(3);
         });
         assertThatThrownBy(()->service.detail(restaurants[0],new PublicInput.Page("",0,20))).isInstanceOfSatisfying(PublicInput.Failure.class,e->assertThat(e.status).isEqualTo(404));
+    }
+    private void suspendInSeparateTransaction(long chefId) {
+        var writer=new TransactionTemplate(transactions);
+        writer.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        writer.executeWithoutResult(status -> db.update(
+            "update mentions set publication_status='SUSPENDED' where chef_id=?",chefId));
+    }
+    @Test void detailCountAndItemsShareSnapshotAcrossCommittedSuspension() throws Exception {
+        doAnswer(invocation -> {
+            var count=invocation.callRealMethod();
+            suspendInSeparateTransaction(c2);
+            return count;
+        }).when(named).queryForObject(startsWith("SELECT count(*) FROM mentions"),
+            anyMap(),eq(Long.class));
+        String path="/api/public/restaurants/"+restaurants[0];
+        var before=json(path).path("sources");
+        assertThat(before.path("totalElements").asInt()).isEqualTo(3);
+        assertThat(before.path("items").size()).isEqualTo(3);
+        assertThat(before.at("/items/2/chef/id").asLong()).isEqualTo(c2);
+        var after=json(path).path("sources");
+        assertThat(after.path("totalElements").asInt()).isEqualTo(2);
+        assertThat(after.path("items").size()).isEqualTo(2);
+    }
+    @Test void areaItemsAndChefPreviewShareSnapshotAcrossCommittedSuspension() throws Exception {
+        doAnswer(invocation -> {
+            suspendInSeparateTransaction(c2);
+            return invocation.callRealMethod();
+        }).when(named).query(startsWith("SELECT * FROM ("),anyMap(),
+            any(RowCallbackHandler.class));
+        var before=json(AREA+"&chefId="+c2);
+        assertThat(ids(before)).containsExactly(restaurants[0]);
+        assertThat(before.at("/items/0/chefCount").asLong()).isEqualTo(2);
+        assertThat(before.at("/items/0/chefs/1/id").asLong()).isEqualTo(c2);
+        assertThat(ids(json(AREA+"&chefId="+c2))).isEmpty();
+        assertThat(json(AREA).at("/items/0/chefCount").asLong()).isEqualTo(1);
+    }
+    @Test void chefCountAndItemsShareSnapshotAcrossCommittedSuspension() throws Exception {
+        doAnswer(invocation -> {
+            var count=invocation.callRealMethod();
+            suspendInSeparateTransaction(c2);
+            return count;
+        }).when(named).queryForObject(startsWith("SELECT count(DISTINCT c.id)"),
+            any(SqlParameterSource.class),eq(Long.class));
+        var before=json("/api/public/chefs");
+        assertThat(before.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(ids(before)).containsExactly(c1,c2);
+        var after=json("/api/public/chefs");
+        assertThat(after.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(ids(after)).containsExactly(c1);
     }
     @Test void measuresExactViewportQueryOnIsolatedFiveThousandRestaurantFixture() throws Exception {
         db.update("""
