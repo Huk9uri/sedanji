@@ -32,7 +32,7 @@ async function prepare(page: Page, sdk = true, permission: 'success' | 'denied' 
       requests.push(url);
       return route.fulfill({ status: failList ? 500 : 200, json: failList ? { message: '모의 조회 실패' } : { items: [item], query: { west: Number(url.searchParams.get('west')), south: Number(url.searchParams.get('south')), east: Number(url.searchParams.get('east')), north: Number(url.searchParams.get('north')), chefId: url.searchParams.has('chefId') ? Number(url.searchParams.get('chefId')) : null }, returnedCount: 1, limit: 200, truncated: false, totalCount: null } });
     }
-    if (url.pathname === '/api/public/restaurants/10') return route.fulfill({ status: unavailable ? 404 : 200, json: unavailable ? { message: '공개된 식당을 찾을 수 없습니다.' } : { ...item, kakaoPlaceId: '123', placeUrl: 'https://place.map.kakao.com/123', sources: { items: sources, page: 0, size: 20, hasNext: false, totalElements: 3 } } });
+    if (url.pathname === '/api/public/restaurants/10') return route.fulfill({ status: unavailable ? 404 : 200, json: unavailable ? { code: 'RESOURCE_NOT_FOUND', message: '공개된 식당을 찾을 수 없습니다.' } : { restaurant: { id: item.id, name: item.name, latitude: item.latitude, longitude: item.longitude, roadAddress: item.roadAddress, address: item.address, kakaoPlaceId: '123', placeUrl: 'https://place.map.kakao.com/123' }, sources: { items: sources, page: 0, size: 20, hasNext: false, totalElements: 3 } } });
     return route.continue();
   });
   return { requests, fail: () => { failList = true; }, hide: () => { unavailable = true; } };

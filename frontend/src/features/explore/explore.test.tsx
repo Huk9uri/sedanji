@@ -21,7 +21,7 @@ const bounds = initialBounds(defaultCenter);
 const query = { ...bounds, chefId: null };
 const item: Item = { id: 10, name: '공개 식당', latitude: 37.5665, longitude: 126.978, roadAddress: '도로', address: '지번', chefs: [{ id: 1, name: '셰프' }], chefCount: 1, hasMoreChefs: false };
 const area: Area = { items: [item], query, returnedCount: 1, limit: 200, truncated: false, totalCount: null };
-const detail: Detail = { ...item, kakaoPlaceId: '123', placeUrl: 'https://place.map.kakao.com/123', sources: { items: [{ mentionId: 1, chef: { id: 1, name: '셰프' }, mentionType: 'VISITED', video: { id: 'PUBVIDEO001', title: '공식 출처', channelTitle: '채널', publishedAt: '2026-11-01T00:00:00Z' }, timestampSeconds: 0 }], totalElements: 1, page: 0, size: 20, hasNext: false } };
+const detail: Detail = { restaurant: { id: item.id, name: item.name, latitude: item.latitude, longitude: item.longitude, roadAddress: item.roadAddress, address: item.address, kakaoPlaceId: '123', placeUrl: 'https://place.map.kakao.com/123' }, sources: { items: [{ mentionId: 1, chef: { id: 1, name: '셰프' }, mentionType: 'VISITED', video: { id: 'PUBVIDEO001', title: '공식 출처', channelTitle: '채널', publishedAt: '2026-11-01T00:00:00Z' }, timestampSeconds: 0 }], totalElements: 1, page: 0, size: 20, hasNext: false } };
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 beforeEach(() => { mocked.mockReset(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -79,13 +79,13 @@ describe('location states', () => {
 });
 
 it('detail keeps server failure separate from confirmed unavailability and drops stale reads', async () => {
-  const unavailable = vi.fn(); const old = deferred<Detail>(); mocked.mockReturnValueOnce(old.promise).mockResolvedValueOnce({ ...detail, id: 20 });
+  const unavailable = vi.fn(); const old = deferred<Detail>(); mocked.mockReturnValueOnce(old.promise).mockResolvedValueOnce({ ...detail, restaurant: { ...detail.restaurant, id: 20 } });
   const { result } = renderHook(() => usePublicDetail(unavailable));
-  act(() => { result.current.open(10); result.current.open(20); }); await waitFor(() => expect(result.current.detail?.id).toBe(20));
-  await act(async () => old.resolve(detail)); expect(result.current.detail?.id).toBe(20);
+  act(() => { result.current.open(10); result.current.open(20); }); await waitFor(() => expect(result.current.detail?.restaurant.id).toBe(20));
+  await act(async () => old.resolve(detail)); expect(result.current.detail?.restaurant.id).toBe(20);
   mocked.mockRejectedValueOnce(new ApiError(500, '서버 실패')); await act(async () => result.current.load(20, 0));
-  expect(unavailable).not.toHaveBeenCalled(); expect(result.current.detail?.id).toBe(20);
-  mocked.mockRejectedValueOnce(new ApiError(404, '공개된 식당을 찾을 수 없습니다.')); await act(async () => result.current.load(20, 0));
+  expect(unavailable).not.toHaveBeenCalled(); expect(result.current.detail?.restaurant.id).toBe(20);
+  mocked.mockRejectedValueOnce(new ApiError(404, '공개된 식당을 찾을 수 없습니다.', { code: 'RESOURCE_NOT_FOUND' })); await act(async () => result.current.load(20, 0));
   expect(result.current.detail).toBeNull(); expect(unavailable).toHaveBeenCalledWith(20);
 });
 
@@ -105,7 +105,11 @@ it('keeps a selected chef when the refreshed global list no longer contains it',
 });
 
 it('queries only on initial bounds, explicit search and chef change; restores detail entry focus', async () => {
-  mocked.mockImplementation(async path => path.startsWith('/public/chefs') ? { items: [{ id: 1, name: '셰프', restaurantCount: 1 }], totalElements: 1, page: 0, size: 50, hasNext: false } : path.startsWith('/public/restaurants/10?') ? detail : area);
+  const nextSource = { ...detail.sources.items[0], mentionId: 2, timestampSeconds: null,
+    video: { ...detail.sources.items[0].video, title: '다음 영상' } };
+  const firstPage = { ...detail, sources: { ...detail.sources, totalElements: 21, hasNext: true } };
+  const nextPage = { ...detail, sources: { ...detail.sources, items: [nextSource], totalElements: 21, page: 1 } };
+  mocked.mockImplementation(async path => path.startsWith('/public/chefs') ? { items: [{ id: 1, name: '셰프', restaurantCount: 1 }], totalElements: 1, page: 0, size: 50, hasNext: false } : path.startsWith('/public/restaurants/10?') ? (path.includes('sourcePage=1') ? nextPage : firstPage) : area);
   render(<ExplorePage active registerRefresh={() => {}}/>);
   fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
   await screen.findByText('1 markers');
@@ -115,6 +119,15 @@ it('queries only on initial bounds, explicit search and chef change; restores de
   expect(areaCalls()[1][0]).toContain('west=127');
   const entry = screen.getByRole('button', { name: '공개 식당' }); entry.focus(); fireEvent.click(entry);
   await screen.findByRole('link', { name: '공식 출처 ↗' }); expect(screen.getByRole('heading', { name: '공개 식당' })).toHaveFocus();
+  const panel = screen.getByRole('region', { name: '식당 상세' });
+  expect(panel).toHaveTextContent('도로');
+  expect(panel).toHaveTextContent('지번');
+  expect(screen.getByRole('link', { name: '공식 출처 ↗' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', 0));
+  fireEvent.click(screen.getByRole('button', { name: '다음 출처' }));
+  expect(await screen.findByRole('link', { name: '다음 영상 ↗' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', null));
+  expect(mocked).toHaveBeenCalledWith('/public/restaurants/10?sourcePage=1&sourceSize=20', expect.anything());
+  expect(screen.getByText('2페이지')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '다음 출처' })).toBeDisabled();
   fireEvent.keyDown(window, { key: 'Escape' }); await waitFor(() => expect(entry).toHaveFocus());
   fireEvent.change(screen.getByLabelText('셰프 필터'), { target: { value: '1' } }); await waitFor(() => expect(areaCalls()).toHaveLength(3)); expect(areaCalls()[2][0]).toContain('chefId=1');
   expect(screen.getByText(/초기 지역 목록입니다/)).toBeInTheDocument();
