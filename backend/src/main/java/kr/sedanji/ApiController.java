@@ -46,6 +46,10 @@ class ApiController {
     @PostMapping("/admin/chefs") Chef chef(@Valid @RequestBody ChefRequest request) { return chefs.createChef(request.name()); }
     @GetMapping("/admin/videos") List<Video> videos() { return videos.findVideos(); }
     @PostMapping("/admin/videos") Video importVideo(@Valid @RequestBody ImportRequest request) { return videoImports.importVideo(request.url()); }
+    @PostMapping("/admin/videos/{id}/candidates/reextract")
+    Map<String, Integer> reextractCandidates(@PathVariable String id) {
+        return Map.of("addedCount", videoImports.reextractCandidates(id));
+    }
     @PostMapping("/admin/videos/{id}/candidates") @ResponseStatus(HttpStatus.CREATED)
     void addCandidate(@PathVariable String id, @Valid @RequestBody ManualCandidate request) { candidates.addManualCandidate(id, request.name(), request.address(), request.evidence()); }
     @GetMapping("/admin/candidates") List<Candidate> candidates() { return candidates.findCandidates(); }

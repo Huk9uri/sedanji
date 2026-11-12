@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.*;
 public interface RestaurantCandidateRepository extends JpaRepository<RestaurantCandidateEntity, Long> {
     @EntityGraph(attributePaths = {"importJob", "importJob.video"})
     List<RestaurantCandidateEntity> findAllByOrderByIdDesc();
+    boolean existsByImportJobVideoIdAndExtractedNameAndExtractedAddress(String videoId, String name, String address);
     boolean existsByImportJobIdAndSourceLineAndExtractedName(Long jobId, Integer line, String name);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from RestaurantCandidateEntity c where c.id=:id")
