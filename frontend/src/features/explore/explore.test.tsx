@@ -13,8 +13,8 @@ import type { Area, Bounds, Detail, Item } from './contracts';
 
 const { mapState, mocked } = vi.hoisted(() => ({ mapState: { failInitially: false }, mocked: vi.fn<(path: string, options?: ApiOptions) => Promise<unknown>>() }));
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), api: mocked }));
-vi.mock('./ExploreMap', () => ({ default: ({ items, onReady, onBounds, onFailure, onSelect }: { items: Item[]; onReady: (b: Bounds, failed: boolean) => void; onBounds: (b: Bounds) => void; onFailure: () => void; onSelect: (id: number) => void }) => {
-  React.useEffect(() => onReady(initialBounds(defaultCenter), mapState.failInitially), [onReady]);
+vi.mock('./ExploreMap', () => ({ default: ({ center, items, onReady, onBounds, onFailure, onSelect }: { center: typeof defaultCenter; items: Item[]; onReady: (b: Bounds, failed: boolean) => void; onBounds: (b: Bounds) => void; onFailure: () => void; onSelect: (id: number) => void }) => {
+  React.useEffect(() => onReady(initialBounds(center), mapState.failInitially), [center, onReady]);
   return <div><span>{items.length} markers</span><button onClick={onFailure}>지도 실패</button><button onClick={() => onBounds({ west: 127, east: 127.02, south: 37, north: 37.02 })}>지도 이동</button>{items.map(r => <button key={r.id} onClick={() => onSelect(r.id)}>핀 {r.id}</button>)}</div>;
 } }));
 const bounds = initialBounds(defaultCenter);
@@ -191,4 +191,105 @@ it('uses a fixed area when the SDK fails and returns focus after a confirmed 404
   await waitFor(() => expect(screen.getByRole('heading', { name: '셰프의 단골 지도' })).toHaveFocus());
   expect(screen.queryByRole('button', { name: item.name })).toBeNull();
   expect(screen.getByRole('button', { name: other.name })).toBeInTheDocument();
+});
+
+it.each(['success', 'denied', 'failed', 'timeout'])('requests the first area only for a usable location (%s)', async outcome => {
+  vi.useFakeTimers();
+  let position!: PositionCallback;
+  let failure!: PositionErrorCallback;
+  vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (ok: PositionCallback, fail: PositionErrorCallback) => {
+    position = ok;
+    failure = fail;
+  } } });
+  mocked.mockImplementation(async path => path.startsWith('/public/chefs') ? { items: [], hasNext: false } : area);
+  const calls = () => mocked.mock.calls.filter(([path]) => path.startsWith('/public/restaurants?'));
+  const coords = { latitude: 35, longitude: 128 };
+  const fix = { coords } as GeolocationPosition;
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  expect(calls()).toHaveLength(0);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '내 위치로 시작' })); });
+  expect(calls()).toHaveLength(0);
+
+  await act(async () => {
+    if (outcome === 'success') position(fix);
+    else if (outcome === 'timeout') vi.advanceTimersByTime(8000);
+    else failure({ code: outcome === 'denied' ? 1 : 2 } as GeolocationPositionError);
+  });
+  const expected = outcome === 'success' ? initialBounds(coords) : outcome === 'denied' ? bounds : null;
+  expect(calls()).toHaveLength(expected ? 1 : 0);
+  if (expected) {
+    const params = new URLSearchParams(calls()[0][0].split('?')[1]);
+    expect(Object.fromEntries(params)).toEqual(Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, String(value)])));
+  }
+  await act(async () => position(fix));
+  expect(calls()).toHaveLength(expected ? 1 : 0);
+});
+
+it.each(['success', 'failure'])('keeps the newer area loading after a stale %s', async outcome => {
+  const previous = deferred<Area>();
+  const current = deferred<Area>();
+  mocked.mockImplementation(path => path.startsWith('/public/chefs') ? Promise.resolve({ items: [], hasNext: false }) : previous.promise);
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
+  const signal = mocked.mock.calls.at(-1)?.[1]?.signal;
+  mocked.mockImplementation(path => path.startsWith('/public/restaurants?') ? current.promise : Promise.resolve({ items: [], hasNext: false }));
+  fireEvent.click(screen.getByRole('button', { name: '이 지역에서 검색' }));
+  expect(signal?.aborted).toBe(true);
+  await act(async () => {
+    if (outcome === 'success') previous.resolve(area);
+    else previous.reject(new Error('이전 조회 실패'));
+  });
+  expect(screen.getByText('식당 조회 중')).toBeVisible();
+  expect(screen.queryByRole('alert')).toBeNull();
+  await act(async () => current.resolve({ ...area, truncated: true }));
+  expect(screen.getByText(/1곳 표시.*일부 결과/)).toBeVisible();
+  expect(screen.getByText('1 markers')).toBeVisible();
+});
+
+it.each(['success', '404'])('ignores a stale detail %s while the current detail loads', async outcome => {
+  const previous = deferred<Detail>();
+  const current = deferred<Detail>();
+  const other = { ...item, id: 20, name: '다른 식당' };
+  mocked.mockImplementation(async path => {
+    if (path.startsWith('/public/chefs')) return { items: [], hasNext: false };
+    if (path.startsWith('/public/restaurants/10?')) return previous.promise;
+    if (path.startsWith('/public/restaurants/20?')) return current.promise;
+    return { ...area, items: [item, other], returnedCount: 2 };
+  });
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
+  fireEvent.click(await screen.findByRole('button', { name: '핀 10' }));
+  fireEvent.click(screen.getByRole('button', { name: '핀 20' }));
+  await act(async () => {
+    if (outcome === 'success') previous.resolve(detail);
+    else previous.reject(new ApiError(404, '공개 불가', { code: 'RESOURCE_NOT_FOUND' }));
+  });
+  expect(screen.getByText('상세 확인 중')).toBeVisible();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('button', { name: '핀 10' })).toBeVisible();
+  await act(async () => current.resolve({ ...detail, restaurant: { ...detail.restaurant, ...other } }));
+  expect(screen.getByRole('heading', { name: other.name })).toBeVisible();
+});
+
+it('retains both pins on failure and clears them on an empty success', async () => {
+  const other = { ...item, id: 20, name: '다른 식당' };
+  const fetchArea = vi.fn()
+    .mockResolvedValueOnce({ ...area, items: [item, other], returnedCount: 2 })
+    .mockRejectedValueOnce(new Error('영역 조회 실패'))
+    .mockResolvedValueOnce({ ...area, items: [], returnedCount: 0 });
+  mocked.mockImplementation(async path => path.startsWith('/public/restaurants?')
+    ? fetchArea()
+    : { items: [], hasNext: false });
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
+  await screen.findByText('2 markers');
+  const previousCondition = screen.getByText(/조회 결과 조건/).textContent?.split('조건: ')[1];
+  fireEvent.click(screen.getByRole('button', { name: '지도 이동' }));
+  fireEvent.click(screen.getByRole('button', { name: '이 지역에서 검색' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('영역 조회 실패');
+  expect(screen.getByText(/이전 성공 결과 조건/)).toHaveTextContent(previousCondition!);
+  for (const id of [10, 20]) expect(screen.getByRole('button', { name: `핀 ${id}` })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+  expect(await screen.findByText('검색 결과가 없습니다')).toBeVisible();
+  expect(screen.getByText('0 markers')).toBeVisible();
 });
