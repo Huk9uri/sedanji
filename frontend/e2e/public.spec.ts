@@ -64,6 +64,7 @@ test('모의 공개 상세: 모든 출처·null/0/793 공식 링크·포커스·
   await expect(page.getByRole('alert')).toContainText('공개된 식당을 찾을 수 없습니다.');
   await expect(page.getByRole('link', { name: /모의 영상/ })).toHaveCount(0);
   await page.getByRole('button', { name: '상세 닫기', exact: true }).click(); await expect(entry).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '셰프의 단골 지도', exact: true })).toBeFocused();
 });
 
 test('모의 SDK 실패·위치 거부: 기본 지역 목록과 공식 링크 유지', async ({ page }) => {

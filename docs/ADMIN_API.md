@@ -192,6 +192,7 @@ Frontend 타입·래퍼·UI는 제외했다. 기존 소비자는 새 경로를 �
 | POST `/mention-drafts/{id}/approve` | 저장된 CREATE 초안 승인. expectedVersion·멱등키 필수, 아래 #15의 200 결과·전용 오류 |
 | GET / POST `/chefs` | GET은 검색·페이지 없는 `{id,name}` 배열. POST `{name}`은 필수·최대 100자, 200 Chef. 동명 신규 생성 가능. 현재 이 경로에는 멱등 영수증 처리 없음 |
 | GET / POST `/videos` | GET은 Video 배열. POST `{url}`은 기존 영상 수집·설명란 후보 추출 흐름이며 200 Video. 메타데이터 전용 API와 구분 |
+| POST `/videos/{id}/candidates/reextract` | 저장된 영상 설명란에서 빠진 후보를 추가. 요청 본문 없음. 200 `{addedCount}` 또는 미등록 영상 404. 기존 후보 및 검토 상태 보존 |
 | GET `/mentions`, GET `/candidates` 및 `/candidates/...` | 기존 관계·후보 조회·검색·승인·제외 유지. 후보 승인·수동 추가는 빈 201, 제외는 204. 후보 승인 입력은 `evidence` 필수·`note` 선택 |
 
 직접 승인 요청은 `placeSelectionToken`, 양의 정수 `chefId`, 11자리 `videoId`, `mentionType`이 필수다. `timestampSeconds`는 null 또는 0 이상 int 정수, `verificationNote`는 선택·최대 2,000자이며 공백은 null로 저장한다. 직접 승인은 토큰만 받으며 #14 초안 API는 기존 restaurantId도 지원한다. 직접 승인은 자유 입력 evidence를 요구하지 않지만 기존 후보 승인은 근거 입력을 요구한다.

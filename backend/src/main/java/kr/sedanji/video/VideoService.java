@@ -28,6 +28,11 @@ public class VideoService {
     public VideoEntity getRequired(String id) {
         return videos.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "영상을 찾을 수 없습니다."));
     }
+    @Transactional(propagation = Propagation.MANDATORY)
+    public VideoEntity getForUpdate(String id) {
+        return videos.findLocked(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "영상을 찾을 수 없습니다."));
+    }
+
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Video fetchMetadata(String id) { return apis.video(id); }
 

@@ -24,6 +24,16 @@ export function useExplore() {
       setLoading(false);
     } }
   }, []);
+  function beginLocationChange() {
+    sequence.current++;
+    controller.current?.abort();
+    lastQuery.current = null;
+    setCameraBounds(null);
+    setRequestedQuery(null);
+    setLoading(false);
+    setError('');
+  }
+
   const invalidate = useCallback(async (isCurrent?: () => boolean) => {
     controller.current?.abort(); sequence.current++; setLastSuccess(null); setError('');
     if (lastQuery.current) await request(lastQuery.current, isCurrent, true);
@@ -31,11 +41,15 @@ export function useExplore() {
   const removeUnavailable = useCallback((id: number) => {
     // A list snapshot started before the confirmed 404 must not restore its pin.
     controller.current?.abort(); sequence.current++; setLoading(false);
-    setLastSuccess(old => old ? { ...old, items: old.items.filter(r => r.id !== id), returnedCount: old.items.filter(r => r.id !== id).length } : old);
+    setLastSuccess(old => {
+      if (!old) return old;
+      const items = old.items.filter(r => r.id !== id);
+      return { ...old, items, returnedCount: items.length };
+    });
   }, []);
   useEffect(() => () => { sequence.current++; controller.current?.abort(); }, []);
   function search() { if (cameraBounds) void request({ ...cameraBounds, chefId }); }
   function retry() { if (lastQuery.current) void request(lastQuery.current); }
   function changeChef(id: number | null) { setChefId(id); if (cameraBounds) void request({ ...cameraBounds, chefId: id }); }
-  return { cameraBounds, setCameraBounds, requestedQuery, lastSuccess, chefId, loading, error, request, search, retry, changeChef, invalidate, removeUnavailable };
+  return { cameraBounds, setCameraBounds, requestedQuery, lastSuccess, chefId, loading, error, request, search, retry, changeChef, beginLocationChange, invalidate, removeUnavailable };
 }

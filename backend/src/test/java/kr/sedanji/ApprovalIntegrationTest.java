@@ -354,6 +354,29 @@ class ApprovalIntegrationTest {
             mvc.perform(post("/api/admin/candidates/" + candidate + "/mentions").with(csrf()).contentType("application/json").content(invalid)).andExpect(status().isBadRequest());
         assertThat(mentionService.findMentions()).isEmpty();
     }
+    @Test void reextractsStoredSeoulCityAddressesWithoutRecreatingExcludedCandidates() throws Exception {
+        String firstAddress = "서울시 성동구 광나루로4가길 33";
+        String secondAddress = "서울시 송파구 오금로36길 67";
+        String description = "📍 이짜\n" + firstAddress + "\n\n📍 제우스닭발\n" + secondAddress;
+        videoService.saveDirectMetadata(new Video(videoId, "검증 영상", "채널", OffsetDateTime.now(), description, "수동 확인"));
+        String path = "/api/admin/videos/" + videoId + "/candidates/reextract";
+
+        mvc.perform(post(path)).andExpect(status().isForbidden());
+        mvc.perform(post(path).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.addedCount").value(2));
+
+        var extracted = candidateService.findCandidates();
+        assertThat(extracted).extracting(Candidate::extractedName, Candidate::extractedAddress, Candidate::evidence)
+            .containsExactlyInAnyOrder(tuple("이짜", firstAddress, "📍 이짜\n" + firstAddress),
+                tuple("제우스닭발", secondAddress, "📍 제우스닭발\n" + secondAddress));
+        long excluded = extracted.get(0).id();
+        candidateService.dismissCandidate(excluded, "검토 후 제외");
+        mvc.perform(post(path).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.addedCount").value(0));
+        assertThat(candidateService.findCandidates()).hasSize(2);
+        assertThat(candidateService.getRequired(excluded).getDisposition()).isEqualTo("DISMISSED");
+        assertThat(mentionService.findMentions()).isEmpty();
+        verifyNoInteractions(apis);
+    }
+
     @Test void manualCandidatesNeedSourceEvidenceAndKeepUnknownFieldsNull() {
         imported();
         candidateService.addManualCandidate(videoId, "수동", "", "뽀요베리");

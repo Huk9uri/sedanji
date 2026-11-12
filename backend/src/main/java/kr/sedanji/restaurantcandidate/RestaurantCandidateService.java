@@ -32,18 +32,28 @@ public class RestaurantCandidateService {
     @Transactional
     public void addExtractedCandidate(ImportJobEntity job, Extracted value) { insertCandidate(job, value); }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean addMissingExtractedCandidate(ImportJobEntity job, Extracted value) {
+        String address = value.address().isBlank() ? null : value.address().strip();
+        if (candidates.existsByImportJobVideoIdAndExtractedNameAndExtractedAddress(
+                job.getVideo().getId(), value.name().strip(), address)) return false;
+        return insertCandidate(job, value);
+    }
+
     @Transactional
     public void addManualCandidate(String videoId, String name, String address, String evidence) {
-        var video = videos.getRequired(videoId);
+        var video = videos.getForUpdate(videoId);
         if (!video.getDescription().contains(evidence))
             throw new IllegalArgumentException("근거는 저장된 설명란 원문에 포함되어야 합니다.");
         var job = jobs.findFirstByVideoIdOrderByIdDesc(videoId).orElseThrow();
         insertCandidate(job, new Extracted(name.strip(), address, 0, evidence));
     }
-    private void insertCandidate(ImportJobEntity job, Extracted value) {
+    private boolean insertCandidate(ImportJobEntity job, Extracted value) {
         Integer line = value.sourceLine() > 0 ? value.sourceLine() : null;
-        if (!candidates.existsByImportJobIdAndSourceLineAndExtractedName(job.getId(), line, value.name().strip()))
-            candidates.save(new RestaurantCandidateEntity(job, value));
+        if (candidates.existsByImportJobIdAndSourceLineAndExtractedName(job.getId(), line, value.name().strip()))
+            return false;
+        candidates.save(new RestaurantCandidateEntity(job, value));
+        return true;
     }
     // The caller owns the transaction so the lock survives the entire approval/matching flow.
     @Transactional(propagation = Propagation.MANDATORY)

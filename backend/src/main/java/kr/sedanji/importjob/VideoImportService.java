@@ -22,6 +22,21 @@ public class VideoImportService {
         this.videos = videos; this.jobs = jobs; this.extractor = extractor; this.candidates = candidates;
     }
     @Transactional
+    public int reextractCandidates(String id) {
+        var video = videos.getForUpdate(id);
+        var extracted = extractor.extract(video.getDescription());
+        if (extracted.isEmpty()) return 0;
+
+        var job = jobs.findFirstByVideoIdOrderByIdDesc(id)
+            .orElseGet(() -> jobs.save(new ImportJobEntity(video, OffsetDateTime.now())));
+        int added = 0;
+        for (Extracted candidate : extracted) {
+            if (candidates.addMissingExtractedCandidate(job, candidate)) added++;
+        }
+        return added;
+    }
+
+    @Transactional
     public Video importVideo(String url) {
         String id = VideoUrl.parse(url);
         var existing = videos.findExisting(id);
