@@ -250,7 +250,10 @@ it('keeps D201 APPLIED and reads relation and draft page zero once when returnin
   fireEvent.click(await screen.findByRole('button',{name:'초안 #201 이어쓰기'}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'승인 전 검토'})).toBeEnabled());
   const before=api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10')).length;
-  fireEvent.click(screen.getByRole('button',{name:'승인 전 검토'}));fireEvent.click(screen.getByRole('button',{name:'저장된 초안 승인·공개'}));
+  fireEvent.click(screen.getByRole('button',{name:'승인 전 검토'}));
+  const approveDraft = await screen.findByRole('button', { name: '저장된 초안 승인·공개' });
+  await waitFor(() => expect(approveDraft).toBeEnabled());
+  fireEvent.click(approveDraft);
   await screen.findByText(/적용 완료 · 관계 ID 301/);
   const result=screen.getByRole('button',{name:'저장한 식당 상세로 이동'});await waitFor(()=>expect(result).toBeEnabled());
   expect(api.mock.calls.filter(([path])=>path.startsWith('/admin/restaurants/10'))).toHaveLength(before);
