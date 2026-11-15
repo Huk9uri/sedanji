@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api';
 import type { ApiOptions } from '../../api';
@@ -292,4 +292,92 @@ it('retains both pins on failure and clears them on an empty success', async () 
   fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
   expect(await screen.findByText('검색 결과가 없습니다')).toBeVisible();
   expect(screen.getByText('0 markers')).toBeVisible();
+});
+
+function renderDetailScenario(items: Item[], loadDetail: (path: string) => Promise<Detail>) {
+  mocked.mockImplementation(async path => {
+    if (path.startsWith('/public/chefs')) return { items: [], hasNext: false };
+    if (path.startsWith('/public/restaurants/')) return loadDetail(path);
+    return { ...area, items, returnedCount: items.length };
+  });
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
+}
+
+it.each(['', '   '])('keeps public details without a Kakao link for Place ID %j', async kakaoPlaceId => {
+  renderDetailScenario([item], async () => ({ ...detail, restaurant: { ...detail.restaurant, kakaoPlaceId } }));
+  fireEvent.click(await screen.findByRole('button', { name: item.name }));
+  const panel = within(screen.getByRole('region', { name: '식당 상세' }));
+  expect(await panel.findByRole('heading', { name: item.name })).toBeVisible();
+  expect(panel.getByText('도로')).toBeVisible();
+  expect(panel.getByText('지번')).toBeVisible();
+  expect(panel.getAllByRole('link')).toEqual([panel.getByRole('link', { name: '공식 출처 ↗' })]);
+});
+
+it('pairs each same-name restaurant with the selected ID, address and official place link', async () => {
+  const other = { ...item, id: 20, roadAddress: '다른 도로', address: '다른 지번' };
+  const loadDetail = vi.fn(async (path: string) => path.startsWith('/public/restaurants/10?')
+    ? detail
+    : { ...detail, restaurant: { ...detail.restaurant, ...other, kakaoPlaceId: '456' } });
+  renderDetailScenario([item, other], loadDetail);
+  fireEvent.click(await screen.findByRole('button', { name: '핀 10' }));
+  const panel = within(screen.getByRole('region', { name: '식당 상세' }));
+  expect(await panel.findByText('도로')).toBeVisible();
+  expect(panel.getByRole('link', { name: /카카오맵/ })).toHaveAttribute('href', 'https://place.map.kakao.com/123');
+  fireEvent.click(screen.getByRole('button', { name: '핀 20' }));
+  expect(await panel.findByText('다른 도로')).toBeVisible();
+  expect(panel.queryByText('도로', { exact: true })).toBeNull();
+  expect(panel.getByRole('link', { name: /카카오맵/ })).toHaveAttribute('href', 'https://place.map.kakao.com/456');
+  expect(loadDetail.mock.calls).toEqual([
+    ['/public/restaurants/10?sourcePage=0&sourceSize=20'],
+    ['/public/restaurants/20?sourcePage=0&sourceSize=20'],
+  ]);
+});
+
+it('renders distinct relations sharing a video with their own types and timestamps', async () => {
+  const first = detail.sources.items[0];
+  const items: Detail['sources']['items'] = [
+    { ...first, mentionType: 'MENTIONED', timestampSeconds: null },
+    { ...first, mentionId: 2, chef: { id: 2, name: '둘째 셰프' }, mentionType: 'RECOMMENDED' },
+    { ...first, mentionId: 3, mentionType: 'REGULAR', video: { ...first.video, id: 'PUBVIDEO002', title: '다른 영상' }, timestampSeconds: 793 },
+  ];
+  renderDetailScenario([item], async () => ({ ...detail, sources: { ...detail.sources, items, totalElements: 3 } }));
+  fireEvent.click(await screen.findByRole('button', { name: item.name }));
+  const panel = within(screen.getByRole('region', { name: '식당 상세' }));
+  await panel.findByRole('heading', { name: '셰프 · 단순 언급' });
+  expect(panel.getAllByRole('article')).toHaveLength(3);
+  for (const [heading, title, timestamp, url] of [
+    ['셰프 · 단순 언급', '공식 출처', '시점 미확인', 'https://www.youtube.com/watch?v=PUBVIDEO001'],
+    ['둘째 셰프 · 추천', '공식 출처', '0초', 'https://www.youtube.com/watch?v=PUBVIDEO001&t=0s'],
+    ['셰프 · 단골', '다른 영상', '793초', 'https://www.youtube.com/watch?v=PUBVIDEO002&t=793s'],
+  ]) {
+    const card = panel.getAllByRole('article').find(article => within(article).queryByRole('heading', { name: heading }));
+    expect(card).toBeDefined();
+    expect(card).toHaveTextContent(timestamp);
+    expect(within(card!).getByRole('link', { name: title + ' ↗' })).toHaveAttribute('href', url);
+  }
+});
+
+it('removes displayed details when the same restaurant becomes unavailable', async () => {
+  const other = { ...item, id: 20, name: '다른 식당' };
+  const loadDetail = vi.fn<(path: string) => Promise<Detail>>()
+    .mockResolvedValueOnce(detail)
+    .mockRejectedValueOnce(new ApiError(404, '공개 불가', { code: 'RESOURCE_NOT_FOUND' }));
+  renderDetailScenario([item, other], loadDetail);
+  fireEvent.click(await screen.findByRole('button', { name: item.name }));
+  const panel = within(screen.getByRole('region', { name: '식당 상세' }));
+  expect(await panel.findByRole('link', { name: '공식 출처 ↗' })).toBeVisible();
+  expect(panel.getByRole('link', { name: /카카오맵/ })).toBeVisible();
+  fireEvent(window, new Event('focus'));
+  expect(await panel.findByRole('alert')).toBeVisible();
+  expect(panel.queryByText('도로', { exact: true })).toBeNull();
+  expect(panel.queryByText('지번', { exact: true })).toBeNull();
+  expect(panel.queryAllByRole('link')).toHaveLength(0);
+  expect(screen.queryByRole('button', { name: '핀 10' })).toBeNull();
+  expect(screen.getByRole('button', { name: '핀 20' })).toBeVisible();
+  fireEvent.click(panel.getByRole('button', { name: '상세 닫기' }));
+  await waitFor(() => expect(screen.getByRole('heading', { name: '셰프의 단골 지도' })).toHaveFocus());
+  expect(screen.queryByRole('button', { name: item.name })).toBeNull();
+  expect(screen.getByRole('button', { name: other.name })).toBeVisible();
+  expect(loadDetail.mock.calls).toEqual(Array.from({ length: 2 }, () => ['/public/restaurants/10?sourcePage=0&sourceSize=20']));
 });
