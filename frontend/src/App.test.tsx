@@ -61,7 +61,12 @@ describe('public and approval workflow', () => {
     expect(approve).toBeDisabled();
     fireEvent.change(screen.getByLabelText('관계 확인 근거'), { target: { value: '해당 셰프의 방문 확인' } });
     await waitFor(() => expect(approve).toBeEnabled());
+    const timestamp = screen.getByLabelText('확인된 시점 (선택)');
+    fireEvent.change(timestamp, { target: { value: '11:60' } });
+    expect(approve).toBeDisabled();
+    fireEvent.change(timestamp, { target: { value: '11:30' } });
+    expect(approve).toBeEnabled();
     fireEvent.click(approve);
-    await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/candidates/9/mentions', { method: 'POST', body: { chefId: 1, placeId: '1158460117', mentionType: 'VISITED', timestampSeconds: null, evidence: '해당 셰프의 방문 확인', note: '셰프와 지점 근거 확인' } }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/candidates/9/mentions', { method: 'POST', body: { chefId: 1, placeId: '1158460117', mentionType: 'VISITED', timestampSeconds: 690, evidence: '해당 셰프의 방문 확인', note: '셰프와 지점 근거 확인' } }));
   });
 });

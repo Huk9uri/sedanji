@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api';
 import type { Candidate, CandidateSearch, Chef, MentionType } from '../../types';
 
+import { timestampSeconds } from './registration/registrationInput';
+
 const dispositionLabels = { OPEN: '검토 대기', RESOLVED: '관계 승인됨', DISMISSED: '후보 제외' };
 const matchLabels = { MATCHED: '장소 일치', REVIEW_REQUIRED: '장소 확인 필요', NOT_FOUND: '검색 결과 없음' };
 
@@ -36,8 +38,14 @@ export default function CandidateReviewCard({ candidate, chefs, refresh, setErro
       try { await refresh(); } catch (refreshError) { onFailure?.(refreshError); /* Keep the original operation error visible. */ }
     } finally { setBusy(false); }
   }
-  const canApprove = Boolean(placeId && chefId && mentionType && evidence.trim() && note.trim()
-    && (timestamp === '' || (/^\d+$/.test(timestamp) && Number(timestamp) <= 2147483647)));
+  let seconds: number | null = null;
+  let timestampError = '';
+  try {
+    seconds = timestampSeconds(timestamp);
+  } catch (error) {
+    timestampError = errorMessage(error);
+  }
+  const canApprove = Boolean(placeId && chefId && mentionType && evidence.trim() && note.trim() && !timestampError);
   return <article className="review-card">
     <div className="card-top"><span className="eyebrow">{dispositionLabels[candidate.disposition]}</span><a href={`https://www.youtube.com/watch?v=${candidate.videoId}`} target="_blank" rel="noreferrer">원본 영상 ↗</a></div>
     <h3>{candidate.extractedName}</h3><p>{candidate.extractedAddress || '설명란에 주소 없음 · 지점 확인 필요'}</p>
@@ -56,12 +64,13 @@ export default function CandidateReviewCard({ candidate, chefs, refresh, setErro
       </fieldset>}
       <label>관계 셰프<select value={chefId} onChange={event => setChefId(event.target.value)}><option value="">영상에서 관계가 확인된 셰프 선택</option>{chefs.map(chef => <option key={chef.id} value={chef.id}>{chef.name}</option>)}</select></label>
       <label>언급 유형<select value={mentionType} onChange={event => setMentionType(event.target.value as MentionType | '')}><option value="">근거에 맞는 유형을 선택하세요</option><option value="REGULAR">단골 · 명시적 확인</option><option value="RECOMMENDED">추천 · 의사 확인</option><option value="VISITED">방문 · 실제 방문 확인</option><option value="MENTIONED">단순 언급 · 해당 셰프의 언급 확인</option></select></label>
-      <label>확인된 영상 시점 (초, 미확인 시 공란)<input type="number" min="0" max="2147483647" step="1" value={timestamp} onChange={event => setTimestamp(event.target.value)}/></label>
+      <label>확인된 시점 (선택)<input placeholder="11:30 또는 1:02:03" aria-invalid={Boolean(timestampError)} value={timestamp} onChange={event => setTimestamp(event.target.value)}/></label>
+      {timestampError && <p role="alert" className="error">{timestampError}</p>}
       <label>관계 확인 근거<textarea maxLength={5000} placeholder="해당 셰프가 이 식당을 어떻게 언급했는지 확인한 근거" value={evidence} onChange={event => setEvidence(event.target.value)}/></label>
       <label>검토 메모<textarea maxLength={2000} placeholder="선택 지점·주소 및 관계 검증 내용을 남겨 주세요." value={note} onChange={event => setNote(event.target.value)}/></label>
       <div className="actions"><button disabled={busy || !canApprove} onClick={() => action(async () => {
         await api(`/admin/candidates/${candidate.id}/mentions`, { method: 'POST', body: {
-          chefId: Number(chefId), placeId, mentionType, timestampSeconds: timestamp === '' ? null : Number(timestamp), evidence, note
+          chefId: Number(chefId), placeId, mentionType, timestampSeconds: seconds, evidence, note
         } }); setChefId(''); setMentionType(''); setEvidence(''); setNote(''); setTimestamp(''); await refresh();
       })}>관계 승인하고 공개</button>
       {candidate.disposition === 'OPEN' && <button className="secondary" disabled={busy || !note.trim()} onClick={() => action(async () => {
