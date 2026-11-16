@@ -10,3 +10,38 @@
 .admin-restaurant-row { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; padding: 23px; background: white; border: 1px solid #e3e6ea; border-radius: 10px; margin: 14px 0; }.admin-restaurant-row>div:first-child { flex: 1 1 220px; }.admin-restaurant-row p { color: #606a78; font-size: 14px; }.admin-name { background: none; color: #182334; font-size: 20px; padding: 0; font-weight: 700; text-align: left; }.admin-badge { display: inline-block; background: #edf2f4; padding: 5px 10px; border-radius: 18px; color: #43515b; font-size: 13px; }.admin-badge.review { background: #fff0df; color: #ac4f0b; }
 .admin-place-info,.admin-relation,.admin-draft-row { background: white; border: 1px solid #e3e6ea; border-radius: 10px; padding: 24px; margin: 20px 0; }.admin-place-info,.admin-summary,.admin-draft-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }.admin-place-info>div:first-child { flex: 1; }.admin-place-info strong { display: block; margin-top: 8px; }.admin-relation-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }.admin-relation-heading small { display: block; color: #687381; margin-top: 8px; font-weight: 400; }.admin-note { white-space: pre-wrap; overflow-wrap: anywhere; }.admin-draft-row { justify-content: space-between; }.admin-pagination { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin: 18px 0 32px; }.admin-workspace button:focus-visible,.admin-workspace a:focus-visible { outline: 3px solid #f4ad7b; outline-offset: 3px; }
 @media(max-width:800px) { .admin-workspace { grid-template-columns: 1fr; }.admin-sidebar { border-right: 0; border-bottom: 1px solid #e3e6ea; padding: 18px; }.admin-sidebar>strong { margin-bottom: 16px; }.admin-sidebar nav { flex-direction: row; }.admin-workspace-content { padding: 18px; }.admin-pagination { flex-wrap: wrap; }.admin-workspace .section-heading { flex-wrap: wrap; gap: 12px; } }
+.admin-shell { background: #f8f9fc; color: #171717; min-height: 100dvh; }
+.admin-shell > header { height: 64px; max-width: none; padding-inline: 24px; background: #fff; border-color: #e5e7eb; }
+.admin-shell > header .brand-icon { background: #6246ea; color: white; }
+.admin-shell > main { max-width: none; padding: 0; }
+.admin-shell > footer { display: none; }
+.admin-shell .admin { padding-top: 0; }
+.admin-shell .admin > .section-heading { background: white; padding: 8px 24px; margin: 0; border-bottom: 1px solid #e5e7eb; }
+.admin-workspace { --admin-accent: #6246ea; --admin-border: #e5e7eb; }
+.admin-shell .admin-workspace { grid-template-columns: 224px minmax(0, 1fr); background: #f8f9fc; border: 0; border-radius: 0; margin: 0; min-height: calc(100dvh - 118px); }
+.admin-shell .admin-workspace-content { width: 100%; max-width: 1320px; margin-inline: auto; padding: 32px; }
+.admin-shell .admin-sidebar { padding: 24px 16px; border-color: var(--admin-border); }
+.admin-shell .admin-sidebar > strong { color: #171717; margin-bottom: 20px; }
+.admin-shell .admin-sidebar nav { gap: 8px; }
+.admin-shell .admin-sidebar button { min-height: 44px; border-radius: 8px; padding: 8px 12px; color: #353545; }
+.admin-shell .admin-sidebar button[aria-current="page"] { background: #f1edff; color: #5135ce; font-weight: 700; }
+.admin-workspace-content > section > .section-heading h2 { font-size: 28px; }
+.admin-workspace .admin-list-tools { background: white; border: 1px solid var(--admin-border); border-radius: 16px; padding: 16px; gap: 12px; }
+.admin-list-tools label { margin: 0; color: #53576a; }
+.admin-list-tools input, .admin-list-tools select { margin: 0; border-color: var(--admin-border); color: #171717; }
+.admin-restaurant-list { overflow-x: auto; background: white; border: 1px solid var(--admin-border); border-radius: 16px; }
+.admin-restaurant-list table { border-collapse: collapse; width: 100%; text-align: left; }
+.admin-restaurant-list th, .admin-restaurant-list td { padding: 12px 16px; border-bottom: 1px solid var(--admin-border); }
+.admin-restaurant-list th { background: #f8f9fc; white-space: nowrap; }
+.admin-restaurant-list tr:last-child td { border-bottom: 0; }
+.admin-restaurant-list .admin-restaurant-row { display: table-row; }
+.admin-restaurant-list p { margin: 4px 0; }
+.admin-workspace .admin-name { border: 0; background: transparent; color: #5135ce; font-size: 16px; }
+.admin-workspace .admin-detail-title { margin-top: 16px; }
+.admin-workspace .admin-place-info, .admin-workspace .admin-relation, .admin-workspace .admin-draft-row { border-color: var(--admin-border); border-radius: 16px; }
+.admin-relation-actions, .admin-relation-actions > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.admin-relation-actions { margin-top: 16px; }
+.admin-workspace .admin-badge.published { background: #f1edff; color: #5135ce; }
+.admin-workspace-content button:not(.secondary, .admin-name, .admin-danger, :disabled), .publication-dialog button[type="submit"]:not(:disabled) { background: #6246ea; border-color: #6246ea; color: white; }
+.admin-workspace .admin-danger { background: white; border-color: #f1c8c2; color: #a53127; }
+.admin-workspace button:focus-visible, .admin-workspace a:focus-visible, .publication-dialog :focus-visible { outline-color: #6246ea; }

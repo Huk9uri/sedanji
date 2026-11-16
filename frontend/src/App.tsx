@@ -36,12 +36,12 @@ function Admin({ onPublished, onGuard }: { onPublished: (isCurrent?: () => boole
     if(leaveGuard.current)leaveGuard.current(proceed);else proceed();
   }
   return <>
-    {!session?.authenticated && <section className="login-panel"><span className="eyebrow">CURATOR DESK</span><h2>관리자 로그인</h2><p>식당과 영상의 근거를 확인합니다.</p>
+    {!session?.authenticated && <section className="login-panel"><span className="eyebrow">관리자 업무 공간</span><h2>관리자 로그인</h2><p>식당과 영상의 근거를 확인합니다.</p>
       {error && <p role="alert" className="error">{error}</p>}<form onSubmit={event=>{event.preventDefault();void login(new FormData(event.currentTarget));}}>
         <label>아이디<input name="username" autoComplete="username" required/></label><label>비밀번호<input name="password" type="password" autoComplete="current-password" required/></label><button disabled={busy}>로그인</button>
       </form></section>}
     <section className="admin" hidden={!session?.authenticated}>
-      <div className="section-heading"><span className="eyebrow">CURATOR DESK</span><button className="secondary" disabled={busy} onClick={logout}>로그아웃</button></div>
+      <div className="section-heading"><span className="eyebrow">관리자 업무 공간</span><button className="secondary" disabled={busy} onClick={logout}>로그아웃</button></div>
       {session?.authenticated && error && <p role="alert" className="error">{error}</p>}
       <AdminWorkspace key={workspaceKey} username={session?.authenticated ? session.username : undefined} authGeneration={authGeneration}
         onExpired={expire} onPublished={onPublished} onGuard={registerGuard}/>

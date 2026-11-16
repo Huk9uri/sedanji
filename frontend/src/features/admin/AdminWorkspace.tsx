@@ -40,6 +40,8 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   const [publication, setPublication] = useState<{ id: number; action: PublicationAction }>();
   const guard = useRef<LeaveGuard | null>(null);
   const listScroll = useRef(0);
+  const listFocusId = useRef<number | null>(null);
+  const workspace = useRef<HTMLDivElement>(null);
   const owner = useRef(username);
   const epoch = useRef(authGeneration); epoch.current = authGeneration;
   const auth = useRef(username); auth.current = username;
@@ -54,7 +56,7 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
     if (!username) return;
     if (owner.current && owner.current !== username) {
       setInput(''); setConditions(initialConditions()); setSelected(null); setMentionPage(0); setDraftPage(0);
-      setView('list'); setEntry({ kind:'new' }); setEntryKey(n=>n+1); setLastCommit(null); setCorrectionTarget(undefined); setCorrectionNotice(''); setPublication(undefined); setVisitedCandidates(false); draftUrl(null); listScroll.current=0;
+      setView('list'); setEntry({ kind:'new' }); setEntryKey(n=>n+1); setLastCommit(null); setCorrectionTarget(undefined); setCorrectionNotice(''); setPublication(undefined); setVisitedCandidates(false); draftUrl(null); listScroll.current=0; listFocusId.current=null;
     }
     owner.current=username;
   }, [username, authGeneration]);
@@ -64,7 +66,13 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
   }, []);
   useEffect(() => {
     if (view !== 'list' || !list.data) return;
-    const frame=requestAnimationFrame(()=>window.scrollTo(0,listScroll.current));
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, listScroll.current);
+      if (listFocusId.current !== null) {
+        workspace.current?.querySelector<HTMLButtonElement>('[data-admin-restaurant="' + listFocusId.current + '"]')?.focus({ preventScroll: true });
+        listFocusId.current = null;
+      }
+    });
     return ()=>cancelAnimationFrame(frame);
   }, [view, !!list.data]);
   function openDetail(id: number) {
@@ -125,16 +133,23 @@ export default function AdminWorkspace({ username, authGeneration, onExpired, on
     }
     if (publicError && !publicLoading) void refreshPublic().catch(()=>{});
   }
+  function openCandidates() {
+    navigate(() => {
+      if (view === 'list') listScroll.current = window.scrollY;
+      setVisitedCandidates(true);
+      setView('candidates');
+    });
+  }
   const active=!!username;
-  return <div className="admin-workspace"><aside className="admin-sidebar"><strong>세단지 <small>ADMIN</small></strong><nav aria-label="관리자 업무 메뉴">
-    <button disabled title="준비 중">제보 관리 · 준비 중</button><button className="selected" onClick={openList}>식당 관리</button>
+  return <div className="admin-workspace" ref={workspace}><aside className="admin-sidebar"><strong>세단지 <small>관리자</small></strong><nav aria-label="관리자 업무 메뉴">
+    <button aria-current={view !== 'candidates' ? 'page' : undefined} onClick={openList}>식당 관리</button><button aria-current={view === 'candidates' ? 'page' : undefined} onClick={openCandidates}>기존 후보 검토</button><button disabled title="준비 중">제보 관리 · 준비 중</button>
   </nav></aside><div className="admin-workspace-content">
     {active && lastCommit && <p role="status">작업 완료 · 식당 #{lastCommit.restaurantId}{lastCommit.previousRestaurantId !== undefined ? ` · 이전 식당 #${lastCommit.previousRestaurantId}` : ''}{lastCommit.draftId !== undefined ? ` · 초안 #${lastCommit.draftId}` : ''}{lastCommit.mentionId !== undefined ? ` · 관계 #${lastCommit.mentionId}` : ''}</p>}
     {active&&correctionNotice&&<p role="status">{correctionNotice}</p>}
     {(relatedError || (active && publicError)) && <p role="alert" className="error">{lastCommit ? '저장·승인은 완료됐지만 ' : ''}{publicError ? '공개 목록 또는 관련' : '관련'} 조회 갱신에 실패했습니다. 조회만 다시 시도하세요. <button disabled={!active || publicLoading} onClick={retryRelated}>관련 조회 다시 시도</button></p>}
-    {view === 'list' && <RestaurantList input={input} onInput={setInput} conditions={conditions} onConditions={next=>{listScroll.current=0;setConditions(next);}}
-      {...list} onRetry={list.refresh} onOpen={id=>{listScroll.current=window.scrollY;openDetail(id);}}
-      onNew={()=>openRegistration({kind:'new'})} onCandidates={()=>navigate(()=>{listScroll.current=window.scrollY;setVisitedCandidates(true);setView('candidates');})}/>}
+    {view === 'list' && <RestaurantList input={input} onInput={setInput} conditions={conditions} onConditions={next=>{listScroll.current=0; listFocusId.current=null;setConditions(next);}}
+      {...list} onRetry={list.refresh} onOpen={id=>{listScroll.current=window.scrollY;listFocusId.current=id;openDetail(id);}}
+      onNew={()=>openRegistration({kind:'new'})}/>}
     {view === 'detail' && <RestaurantDetail data={detail.detail.data} loading={detail.detail.loading} error={detail.detail.error}
       drafts={detail.drafts.data} draftsLoading={detail.drafts.loading} draftsError={detail.drafts.error}
       onRetry={detail.detail.refresh} onDraftRetry={detail.drafts.refresh} onBack={openList}
