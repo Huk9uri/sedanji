@@ -4,13 +4,13 @@ import type { ListConditions, Page, PublicationFilter, RestaurantItem } from './
 export function SourceState({ needsSourceReview, sourceCount }: { needsSourceReview: boolean | null; sourceCount: number }) {
   return <span className={`admin-badge ${needsSourceReview === true ? 'review' : ''}`}>{sourceCount === 0 ? '연결 출처 없음' : needsSourceReview === null ? '출처 미확인' : needsSourceReview ? '출처 재확인 필요' : '연결 출처 정상 확인'}</span>;
 }
-export default function RestaurantList({ input, onInput, conditions, onConditions, data, loading, error, onRetry, onOpen, onNew, onCandidates }: {
+export default function RestaurantList({ input, onInput, conditions, onConditions, data, loading, error, onRetry, onOpen, onNew }: {
   input: string; onInput: (value: string) => void; conditions: ListConditions; onConditions: (value: ListConditions) => void;
-  data?: Page<RestaurantItem>; loading: boolean; error?: unknown; onRetry: () => void; onOpen: (id: number) => void; onNew: () => void; onCandidates: () => void;
+  data?: Page<RestaurantItem>; loading: boolean; error?: unknown; onRetry: () => void; onOpen: (id: number) => void; onNew: () => void;
 }) {
   const [inputError, setInputError] = useState('');
   const filtered = conditions.query !== '' || conditions.publication !== 'ALL' || conditions.needsSourceReview;
-  return <section aria-label="관리자 식당 목록"><div className="section-heading"><h2>식당 관리</h2><button onClick={onNew}>식당 직접 등록 · 초안 이어쓰기</button></div>
+  return <section aria-label="관리자 식당 목록"><div className="section-heading"><div><h2>식당 관리</h2><p className="field-help">식당별 셰프·영상 관계와 공개 상태를 확인합니다.</p></div><button onClick={onNew}>식당 직접 등록 · 초안 이어쓰기</button></div>
     <div className="admin-list-tools"><form onSubmit={event => { event.preventDefault(); const query=input.trim();
       if (Array.from(query).length > 100) { setInputError('검색어는 100자 이하여야 합니다.'); return; }
       setInputError(''); onConditions({ ...conditions, query, page: 0 }); }}>
@@ -25,15 +25,14 @@ export default function RestaurantList({ input, onInput, conditions, onCondition
     {error !== undefined && <p role="alert" className="error">{error instanceof ApiError && error.status === 403 ? '식당 목록 접근 권한이 없습니다.' : errorMessage(error)} <button onClick={onRetry}>목록 다시 시도</button></p>}
     {data && !loading && error === undefined && <><p>전체 {data.totalElements}곳 · {data.page + 1}페이지</p>
       {!data.items.length && <p className="empty">{filtered ? '조건에 맞는 식당이 없습니다.' : '등록된 식당이 없습니다.'}</p>}
-      <div className="admin-restaurant-list">{data.items.map(item => <article key={item.id} className="admin-restaurant-row">
-        <div><button className="admin-name" onClick={() => onOpen(item.id)}>{item.name}</button><p>{item.roadAddress || item.address || '주소 정보 없음'}</p>
-          <p>{item.chefs.map(chef => chef.name).join(', ') || '연결 셰프 없음'}{item.hasMoreChefs ? ` 외 ${item.chefCount - item.chefs.length}명` : ''}</p></div>
-        <div><span className="admin-badge">{item.hasPublicRelation ? '공개 관계 있음' : '공개 관계 없음'}</span><p>공개 관계 {item.publicRelationCount} / 전체 관계 {item.relationCount}</p>
-          <SourceState needsSourceReview={item.needsSourceReview} sourceCount={item.sourceCount}/><p>연결 영상 {item.sourceCount} · 미확인 {item.uncheckedSourceCount} · 재확인 {item.reviewRequiredSourceCount}</p></div>
-        <button className="secondary" onClick={() => onOpen(item.id)}>상세 보기 · {item.name}</button>
-      </article>)}</div>
+      {data.items.length > 0 && <div className="admin-restaurant-list"><table><thead><tr><th scope="col">식당 · 주소</th><th scope="col">연결 관계</th><th scope="col">공개 관계</th><th scope="col">출처 상태</th><th scope="col">상세</th></tr></thead><tbody>{data.items.map(item => <tr key={item.id} className="admin-restaurant-row">
+        <td><button className="admin-name" data-admin-restaurant={item.id} onClick={() => onOpen(item.id)}>{item.name}</button><p>{item.roadAddress || item.address || '주소 정보 없음'}</p>
+          <p>{item.chefs.map(chef => chef.name).join(', ') || '연결 셰프 없음'}{item.hasMoreChefs ? ` 외 ${item.chefCount - item.chefs.length}명` : ''}</p></td>
+        <td>{item.relationCount}건</td><td><strong>{item.publicRelationCount}건</strong><p>{item.hasPublicRelation ? '공개 관계 있음' : '공개 관계 없음'}</p></td><td>
+          <SourceState needsSourceReview={item.needsSourceReview} sourceCount={item.sourceCount}/><p>연결 영상 {item.sourceCount} · 미확인 {item.uncheckedSourceCount} · 재확인 {item.reviewRequiredSourceCount}</p></td>
+        <td><button className="secondary" aria-label={'상세 보기 · ' + item.name} onClick={() => onOpen(item.id)}>상세 보기</button></td>
+      </tr>)}</tbody></table></div>}
       <nav aria-label="식당 목록 페이지" className="admin-pagination"><button disabled={data.page === 0 || loading} onClick={() => onConditions({ ...conditions, page: data.page - 1 })}>이전 식당 페이지</button>
         <button disabled={!data.hasNext || loading} onClick={() => onConditions({ ...conditions, page: data.page + 1 })}>다음 식당 페이지</button></nav></>}
-    <button className="secondary" onClick={onCandidates}>기존 후보 검토</button>
   </section>;
 }

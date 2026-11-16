@@ -14,7 +14,7 @@ function mount(conditions = initialConditions(), loading = false, error?: unknow
     return <RestaurantList input={input} onInput={setInput} conditions={executed}
       onConditions={(next: ListConditions) => { execute(next); setExecuted(next); }}
       data={{ items: [], totalElements: 0, page: executed.page, size: 20, hasNext: false }}
-      loading={loading} error={error} onRetry={vi.fn()} onOpen={vi.fn()} onNew={vi.fn()} onCandidates={vi.fn()}/>;
+      loading={loading} error={error} onRetry={vi.fn()} onOpen={vi.fn()} onNew={vi.fn()}/>;
   }
   render(<Harness/>);
   return execute;
