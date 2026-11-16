@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import { loadSdk } from '../../kakaoSdk';
 import type { KakaoMap, KakaoMarker } from '../../kakao';
 import type { Bounds, Item } from './contracts';
 import { initialBounds } from './contracts';
 
-interface Props { center: { latitude: number; longitude: number }; items: Item[]; onBounds: (bounds: Bounds) => void; onReady: (bounds: Bounds, failed: boolean) => void; onFailure: () => void; onSelect: (id: number) => void }
-export default function ExploreMap({ center, items, onBounds, onReady, onFailure, onSelect }: Props) {
+export interface ExploreMapHandle { readBounds: () => Bounds | null }
+
+interface Props { ref?: Ref<ExploreMapHandle>; expanded?: boolean; center: { latitude: number; longitude: number }; items: Item[]; onBounds: (bounds: Bounds) => void; onReady: (bounds: Bounds, failed: boolean) => void; onFailure: () => void; onSelect: (id: number) => void }
+export default function ExploreMap({ ref, expanded = false, center, items, onBounds, onReady, onFailure, onSelect }: Props) {
   const node = useRef<HTMLDivElement>(null); const map = useRef<KakaoMap | null>(null);
+  const readBounds = useRef<() => Bounds | null>(() => null);
+  useImperativeHandle(ref, () => ({ readBounds: () => readBounds.current() }), []);
   const [ready, setReady] = useState(false); const [error, setError] = useState('');
   const [mapVersion, setMapVersion] = useState(0);
   const failMap = useRef<() => void>(() => {});
@@ -24,6 +29,7 @@ export default function ExploreMap({ center, items, onBounds, onReady, onFailure
       observer?.disconnect();
       observer = undefined;
       map.current = null;
+      readBounds.current = () => null;
       remove();
     };
     setReady(false);
@@ -38,7 +44,7 @@ export default function ExploreMap({ center, items, onBounds, onReady, onFailure
       setOverlap([]);
       setError(initialized ? '지도 연결 실패 · 마지막 조회 결과' : '지도 연결 실패 · 초기 지역 목록');
       if (initialized) callbacks.current.onFailure();
-      else callbacks.current.onReady(initialBounds(center), true);
+      else callbacks.current.onReady(initialBounds(center, expanded), true);
     };
     failMap.current = fail;
     if (!key && !window.kakao?.maps?.Map) {
@@ -49,7 +55,7 @@ export default function ExploreMap({ center, items, onBounds, onReady, onFailure
       if (!active || !node.current) return;
       const instance = new kakao.maps.Map(node.current, { center: new kakao.maps.LatLng(center.latitude, center.longitude), level: 5 });
       map.current = instance;
-      const initial = initialBounds(center); const initialViewport = new kakao.maps.LatLngBounds();
+      const initial = initialBounds(center, expanded); const initialViewport = new kakao.maps.LatLngBounds();
       initialViewport.extend(new kakao.maps.LatLng(initial.south, initial.west));
       initialViewport.extend(new kakao.maps.LatLng(initial.north, initial.east));
       instance.setBounds(initialViewport);
@@ -61,6 +67,9 @@ export default function ExploreMap({ center, items, onBounds, onReady, onFailure
           throw new Error('지도 영역 확인 실패');
         }
         return area;
+      };
+      readBounds.current = () => {
+        try { return bounds(); } catch { fail(); return null; }
       };
       const updateBounds = () => {
         if (!active || !initialized || failed || node.current?.closest('section')?.hidden) return;
@@ -82,7 +91,7 @@ export default function ExploreMap({ center, items, onBounds, onReady, onFailure
       callbacks.current.onReady(actualBounds, false); setMapVersion(n => n + 1); setReady(true);
     }).catch(fail);
     return () => { active = false; dispose(); };
-  }, [center]);
+  }, [center, expanded]);
   useEffect(() => {
     if (!ready || !map.current || !window.kakao) return;
     setOverlap([]);

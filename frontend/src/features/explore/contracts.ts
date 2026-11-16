@@ -9,8 +9,10 @@ export interface Source { mentionId: number; chef: Chef; mentionType: 'REGULAR' 
 export interface Detail { restaurant: { id: number; name: string; kakaoPlaceId: string; roadAddress: string | null; address: string | null; latitude: number; longitude: number; placeUrl: string }; sources: Page<Source> }
 export const defaultCenter = { latitude: 37.5665, longitude: 126.9780 };
 // Explicit fallback rectangle, never described as SDK camera bounds.
-export function initialBounds(center: typeof defaultCenter): Bounds {
-  return { west: center.longitude - .0113, east: center.longitude + .0113, south: center.latitude - .009, north: center.latitude + .009 };
+export function initialBounds(center: typeof defaultCenter, expanded = false): Bounds {
+  const longitudeRadius = expanded ? .08 : .0113;
+  const latitudeRadius = expanded ? .025 : .009;
+  return { west: center.longitude - longitudeRadius, east: center.longitude + longitudeRadius, south: center.latitude - latitudeRadius, north: center.latitude + latitudeRadius };
 }
 export function areaPath(q: Query): string {
   const p = new URLSearchParams({ west: String(q.west), south: String(q.south), east: String(q.east), north: String(q.north) });

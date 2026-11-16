@@ -7,17 +7,24 @@ import { useExplore } from './useExplore';
 import { useLocation } from './useLocation';
 import { usePublicDetail } from './usePublicDetail';
 import ExplorePage from './ExplorePage';
+import type { ExploreMapHandle } from './ExploreMap';
 import ChefFilter from './ChefFilter';
 import { initialBounds, defaultCenter, youtubeLink } from './contracts';
 import type { Area, Bounds, Detail, Item } from './contracts';
 
 const { mapState, mocked } = vi.hoisted(() => ({ mapState: { failInitially: false }, mocked: vi.fn<(path: string, options?: ApiOptions) => Promise<unknown>>() }));
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), api: mocked }));
-vi.mock('./ExploreMap', () => ({ default: ({ center, items, onReady, onBounds, onFailure, onSelect }: { center: typeof defaultCenter; items: Item[]; onReady: (b: Bounds, failed: boolean) => void; onBounds: (b: Bounds) => void; onFailure: () => void; onSelect: (id: number) => void }) => {
-  React.useEffect(() => onReady(initialBounds(center), mapState.failInitially), [center, onReady]);
-  return <div><span>{items.length} markers</span><button onClick={onFailure}>지도 실패</button><button onClick={() => onBounds({ west: 127, east: 127.02, south: 37, north: 37.02 })}>지도 이동</button>{items.map(r => <button key={r.id} onClick={() => onSelect(r.id)}>핀 {r.id}</button>)}</div>;
+vi.mock('./ExploreMap', () => ({ default: ({ ref, expanded, center, items, onReady, onBounds, onFailure, onSelect }: { ref: React.Ref<ExploreMapHandle>; expanded: boolean; center: typeof defaultCenter; items: Item[]; onReady: (b: Bounds, failed: boolean) => void; onBounds: (b: Bounds) => void; onFailure: () => void; onSelect: (id: number) => void }) => {
+  const camera = React.useRef<Bounds>(initialBounds(center, expanded));
+  React.useImperativeHandle(ref, () => ({ readBounds: () => camera.current }), []);
+  React.useEffect(() => {
+    camera.current = initialBounds(center, expanded);
+    onReady(camera.current, mapState.failInitially);
+  }, [center, expanded, onReady]);
+  function move() { camera.current = { west: 127, east: 127.02, south: 37, north: 37.02 }; }
+  return <div><span>{items.length} markers</span><button onClick={onFailure}>지도 실패</button><button onClick={() => { move(); onBounds(camera.current); }}>지도 이동</button><button onClick={move}>지도 이동 중</button>{items.map(r => <button key={r.id} onClick={() => onSelect(r.id)}>핀 {r.id}</button>)}</div>;
 } }));
-const bounds = initialBounds(defaultCenter);
+const bounds = initialBounds(defaultCenter, true);
 const query = { ...bounds, chefId: null };
 const item: Item = { id: 10, name: '공개 식당', latitude: 37.5665, longitude: 126.978, roadAddress: '도로', address: '지번', chefs: [{ id: 1, name: '셰프' }], chefCount: 1, hasMoreChefs: false };
 const area: Area = { items: [item], query, returnedCount: 1, limit: 200, truncated: false, totalCount: null };
@@ -114,22 +121,21 @@ it('queries only on initial bounds, explicit search and chef change; restores de
   const nextPage = { ...detail, sources: { ...detail.sources, items: [nextSource], totalElements: 21, page: 1 } };
   mocked.mockImplementation(async path => path.startsWith('/public/chefs') ? { items: [{ id: 1, name: '셰프', restaurantCount: 1 }], totalElements: 1, page: 0, size: 50, hasNext: false } : path.startsWith('/public/restaurants/10?') ? (path.includes('sourcePage=1') ? nextPage : firstPage) : area);
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
   await screen.findByText('1 markers');
   const areaCalls = () => mocked.mock.calls.filter(([p]) => p.startsWith('/public/restaurants?'));
-  expect(areaCalls()).toHaveLength(1); fireEvent.click(screen.getByRole('button', { name: '지도 이동' })); expect(areaCalls()).toHaveLength(1);
+  expect(areaCalls()).toHaveLength(1); fireEvent.click(screen.getByRole('button', { name: '지도 이동 중' })); expect(areaCalls()).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: '이 지역에서 검색' })); await waitFor(() => expect(areaCalls()).toHaveLength(2));
   const cameraQuery = { west: '127', east: '127.02', south: '37', north: '37.02' };
   const parameters = (index: number) => Object.fromEntries(new URLSearchParams(areaCalls()[index][0].split('?')[1]));
   expect(parameters(1)).toEqual(cameraQuery);
   const entry = screen.getByRole('button', { name: '공개 식당' }); entry.focus(); fireEvent.click(entry);
-  await screen.findByRole('link', { name: '공식 출처 ↗' }); expect(screen.getByRole('heading', { name: '공개 식당' })).toHaveFocus();
+  await screen.findByRole('link', { name: '0:00부터 보기' }); expect(screen.getByRole('heading', { name: '공개 식당' })).toHaveFocus();
   const panel = screen.getByRole('region', { name: '식당 상세' });
   expect(panel).toHaveTextContent('도로');
-  expect(panel).toHaveTextContent('지번');
-  expect(screen.getByRole('link', { name: '공식 출처 ↗' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', 0));
+  expect(panel).not.toHaveTextContent('지번');
+  expect(screen.getByRole('link', { name: '0:00부터 보기' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', 0));
   fireEvent.click(screen.getByRole('button', { name: '다음 출처' }));
-  expect(await screen.findByRole('link', { name: '다음 영상 ↗' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', null));
+  expect(await screen.findByRole('link', { name: 'YouTube에서 보기' })).toHaveAttribute('href', youtubeLink('PUBVIDEO001', null));
   expect(mocked).toHaveBeenCalledWith('/public/restaurants/10?sourcePage=1&sourceSize=20', expect.anything());
   expect(screen.getByText('2페이지')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '다음 출처' })).toBeDisabled();
@@ -174,8 +180,6 @@ it('uses a fixed area when the SDK fails and returns focus after a confirmed 404
   });
   render(<ExplorePage active registerRefresh={() => {}}/>);
   const areaCalls = () => mocked.mock.calls.filter(([path]) => path.startsWith('/public/restaurants?'));
-  expect(areaCalls()).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
   await screen.findByText('2 markers');
   expect(areaCalls()).toHaveLength(1);
   const params = new URLSearchParams(areaCalls()[0][0].split('?')[1]);
@@ -206,9 +210,9 @@ it.each(['success', 'denied', 'failed', 'timeout'])('requests the first area onl
   const coords = { latitude: 35, longitude: 128 };
   const fix = { coords } as GeolocationPosition;
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  expect(calls()).toHaveLength(0);
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '내 위치로 시작' })); });
-  expect(calls()).toHaveLength(0);
+  expect(calls()).toHaveLength(1);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '내 위치' })); });
+  expect(calls()).toHaveLength(1);
 
   await act(async () => {
     if (outcome === 'success') position(fix);
@@ -216,13 +220,13 @@ it.each(['success', 'denied', 'failed', 'timeout'])('requests the first area onl
     else failure({ code: outcome === 'denied' ? 1 : 2 } as GeolocationPositionError);
   });
   const expected = outcome === 'success' ? initialBounds(coords) : outcome === 'denied' ? bounds : null;
-  expect(calls()).toHaveLength(expected ? 1 : 0);
+  expect(calls()).toHaveLength(expected ? 2 : 1);
   if (expected) {
-    const params = new URLSearchParams(calls()[0][0].split('?')[1]);
+    const params = new URLSearchParams(calls().at(-1)![0].split('?')[1]);
     expect(Object.fromEntries(params)).toEqual(Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, String(value)])));
   }
   await act(async () => position(fix));
-  expect(calls()).toHaveLength(expected ? 1 : 0);
+  expect(calls()).toHaveLength(expected ? 2 : 1);
 });
 
 it.each(['success', 'failure'])('keeps the newer area loading after a stale %s', async outcome => {
@@ -230,8 +234,7 @@ it.each(['success', 'failure'])('keeps the newer area loading after a stale %s',
   const current = deferred<Area>();
   mocked.mockImplementation(path => path.startsWith('/public/chefs') ? Promise.resolve({ items: [], hasNext: false }) : previous.promise);
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
-  const signal = mocked.mock.calls.at(-1)?.[1]?.signal;
+  const signal = mocked.mock.calls.find(([path]) => path.startsWith('/public/restaurants?'))?.[1]?.signal;
   mocked.mockImplementation(path => path.startsWith('/public/restaurants?') ? current.promise : Promise.resolve({ items: [], hasNext: false }));
   fireEvent.click(screen.getByRole('button', { name: '이 지역에서 검색' }));
   expect(signal?.aborted).toBe(true);
@@ -242,7 +245,7 @@ it.each(['success', 'failure'])('keeps the newer area loading after a stale %s',
   expect(screen.getByText('식당 조회 중')).toBeVisible();
   expect(screen.queryByRole('alert')).toBeNull();
   await act(async () => current.resolve({ ...area, truncated: true }));
-  expect(screen.getByText(/1곳 표시.*일부 결과/)).toBeVisible();
+  expect(screen.getByText(/일부 결과입니다/)).toBeVisible();
   expect(screen.getByText('1 markers')).toBeVisible();
 });
 
@@ -257,7 +260,6 @@ it.each(['success', '404'])('ignores a stale detail %s while the current detail 
     return { ...area, items: [item, other], returnedCount: 2 };
   });
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
   fireEvent.click(await screen.findByRole('button', { name: '핀 10' }));
   fireEvent.click(screen.getByRole('button', { name: '핀 20' }));
   await act(async () => {
@@ -281,17 +283,31 @@ it('retains both pins on failure and clears them on an empty success', async () 
     ? fetchArea()
     : { items: [], hasNext: false });
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
   await screen.findByText('2 markers');
-  const previousCondition = screen.getByText(/조회 결과 조건/).textContent?.split('조건: ')[1];
   fireEvent.click(screen.getByRole('button', { name: '지도 이동' }));
   fireEvent.click(screen.getByRole('button', { name: '이 지역에서 검색' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('영역 조회 실패');
-  expect(screen.getByText(/이전 성공 결과 조건/)).toHaveTextContent(previousCondition!);
+  expect(screen.getByText('이전 검색 결과 · 전체 셰프 · 2곳')).toBeVisible();
   for (const id of [10, 20]) expect(screen.getByRole('button', { name: `핀 ${id}` })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
   expect(await screen.findByText('검색 결과가 없습니다')).toBeVisible();
   expect(screen.getByText('0 markers')).toBeVisible();
+});
+
+it('clears the chef filter from an empty result and searches the same area again', async () => {
+  mocked.mockImplementation(async path => {
+    if (path.startsWith('/public/chefs')) return { items: [{ id: 1, name: '셰프', restaurantCount: 1 }], hasNext: false };
+    if (path.includes('chefId=1')) return { ...area, query: { ...query, chefId: 1 }, items: [], returnedCount: 0 };
+    return area;
+  });
+  render(<ExplorePage active registerRefresh={() => {}}/>);
+  await screen.findByRole('option', { name: /셰프 · 공개 식당/ });
+  fireEvent.change(screen.getByLabelText('셰프 필터'), { target: { value: '1' } });
+  fireEvent.click(await screen.findByRole('button', { name: '셰프 필터 해제' }));
+  await screen.findByText('이 지도 영역 · 전체 셰프 · 1곳');
+  const requests = mocked.mock.calls.filter(([path]) => path.startsWith('/public/restaurants?'));
+  expect(requests).toHaveLength(3);
+  expect(requests[2][0]).toBe(requests[0][0]);
 });
 
 function renderDetailScenario(items: Item[], loadDetail: (path: string) => Promise<Detail>) {
@@ -301,7 +317,6 @@ function renderDetailScenario(items: Item[], loadDetail: (path: string) => Promi
     return { ...area, items, returnedCount: items.length };
   });
   render(<ExplorePage active registerRefresh={() => {}}/>);
-  fireEvent.click(screen.getByRole('button', { name: '서울 시청 기본 지역' }));
 }
 
 it.each(['', '   '])('keeps public details without a Kakao link for Place ID %j', async kakaoPlaceId => {
@@ -310,22 +325,22 @@ it.each(['', '   '])('keeps public details without a Kakao link for Place ID %j'
   const panel = within(screen.getByRole('region', { name: '식당 상세' }));
   expect(await panel.findByRole('heading', { name: item.name })).toBeVisible();
   expect(panel.getByText('도로')).toBeVisible();
-  expect(panel.getByText('지번')).toBeVisible();
-  expect(panel.getAllByRole('link')).toEqual([panel.getByRole('link', { name: '공식 출처 ↗' })]);
+  expect(panel.queryByText('지번')).toBeNull();
+  expect(panel.getAllByRole('link')).toEqual([panel.getByRole('link', { name: '0:00부터 보기' })]);
 });
 
 it('pairs each same-name restaurant with the selected ID, address and official place link', async () => {
   const other = { ...item, id: 20, roadAddress: '다른 도로', address: '다른 지번' };
   const loadDetail = vi.fn(async (path: string) => path.startsWith('/public/restaurants/10?')
     ? detail
-    : { ...detail, restaurant: { ...detail.restaurant, ...other, kakaoPlaceId: '456' } });
+    : { ...detail, restaurant: { ...detail.restaurant, ...other, roadAddress: null, kakaoPlaceId: '456' } });
   renderDetailScenario([item, other], loadDetail);
   fireEvent.click(await screen.findByRole('button', { name: '핀 10' }));
   const panel = within(screen.getByRole('region', { name: '식당 상세' }));
   expect(await panel.findByText('도로')).toBeVisible();
   expect(panel.getByRole('link', { name: /카카오맵/ })).toHaveAttribute('href', 'https://place.map.kakao.com/123');
   fireEvent.click(screen.getByRole('button', { name: '핀 20' }));
-  expect(await panel.findByText('다른 도로')).toBeVisible();
+  expect(await panel.findByText('다른 지번')).toBeVisible();
   expect(panel.queryByText('도로', { exact: true })).toBeNull();
   expect(panel.getByRole('link', { name: /카카오맵/ })).toHaveAttribute('href', 'https://place.map.kakao.com/456');
   expect(loadDetail.mock.calls).toEqual([
@@ -347,14 +362,15 @@ it('renders distinct relations sharing a video with their own types and timestam
   await panel.findByRole('heading', { name: '셰프 · 단순 언급' });
   expect(panel.getAllByRole('article')).toHaveLength(3);
   for (const [heading, title, timestamp, url] of [
-    ['셰프 · 단순 언급', '공식 출처', '시점 미확인', 'https://www.youtube.com/watch?v=PUBVIDEO001'],
-    ['둘째 셰프 · 추천', '공식 출처', '0초', 'https://www.youtube.com/watch?v=PUBVIDEO001&t=0s'],
-    ['셰프 · 단골', '다른 영상', '793초', 'https://www.youtube.com/watch?v=PUBVIDEO002&t=793s'],
+    ['셰프 · 단순 언급', '공식 출처', 'YouTube에서 보기', 'https://www.youtube.com/watch?v=PUBVIDEO001'],
+    ['둘째 셰프 · 추천', '공식 출처', '0:00부터 보기', 'https://www.youtube.com/watch?v=PUBVIDEO001&t=0s'],
+    ['셰프 · 단골', '다른 영상', '13:13부터 보기', 'https://www.youtube.com/watch?v=PUBVIDEO002&t=793s'],
   ]) {
     const card = panel.getAllByRole('article').find(article => within(article).queryByRole('heading', { name: heading }));
     expect(card).toBeDefined();
     expect(card).toHaveTextContent(timestamp);
-    expect(within(card!).getByRole('link', { name: title + ' ↗' })).toHaveAttribute('href', url);
+    expect(within(card!).getByText(title)).toBeVisible();
+    expect(within(card!).getByRole('link', { name: timestamp })).toHaveAttribute('href', url);
   }
 });
 
@@ -366,7 +382,7 @@ it('removes displayed details when the same restaurant becomes unavailable', asy
   renderDetailScenario([item, other], loadDetail);
   fireEvent.click(await screen.findByRole('button', { name: item.name }));
   const panel = within(screen.getByRole('region', { name: '식당 상세' }));
-  expect(await panel.findByRole('link', { name: '공식 출처 ↗' })).toBeVisible();
+  expect(await panel.findByRole('link', { name: '0:00부터 보기' })).toBeVisible();
   expect(panel.getByRole('link', { name: /카카오맵/ })).toBeVisible();
   fireEvent(window, new Event('focus'));
   expect(await panel.findByRole('alert')).toBeVisible();

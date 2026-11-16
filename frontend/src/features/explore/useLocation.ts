@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { defaultCenter } from './contracts';
-export function useLocation() {
-  const [state, setState] = useState<'prompt' | 'loading' | 'located' | 'denied' | 'failed' | 'timeout' | 'default'>('prompt');
-  const [center, setCenter] = useState<typeof defaultCenter | null>(null);
+export function useLocation(startAtDefault = false) {
+  const [state, setState] = useState<'prompt' | 'loading' | 'located' | 'denied' | 'failed' | 'timeout' | 'default'>(startAtDefault ? 'default' : 'prompt');
+  const [center, setCenter] = useState<typeof defaultCenter | null>(startAtDefault ? defaultCenter : null);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   function cancel() { generation.current++; clearTimeout(timer.current); }
