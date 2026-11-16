@@ -3,6 +3,7 @@ import type { Page, BrowserContext } from '@playwright/test';
 import { probe, runtime } from './probe';
 import type { Row } from './probe';
 import type { Restaurant } from '../src/types';
+import { areaPath, initialBounds } from '../src/features/explore/contracts';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -22,10 +23,12 @@ async function isolate(context: BrowserContext) {
     return url.origin === 'http://127.0.0.1:18173' ? route.continue() : route.abort();
   });
 }
+const testLocation = { latitude: 37, longitude: 127 };
+
 test.beforeEach(async ({ context }) => {
   await isolate(context);
-  await context.addInitScript(() => Object.defineProperty(navigator, 'geolocation', { configurable: true,
-    value: { getCurrentPosition: (success: PositionCallback) => success({ coords: { latitude: 37, longitude: 127 } } as GeolocationPosition) } }));
+  await context.addInitScript(coords => Object.defineProperty(navigator, 'geolocation', { configurable: true,
+    value: { getCurrentPosition: (success: PositionCallback) => success({ coords } as GeolocationPosition) } }), testLocation);
 });
 async function login(page: Page, username = 'e2e-admin') {
   await page.goto('/');
@@ -223,8 +226,11 @@ test('C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구', async (
   const id = original.mentions[1].id;
   await expect(page.getByText('공개 관계 0 / 전체 관계 2', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '맛집 지도', exact: true }).click();
-  await page.getByRole('button', { name: '내 위치로 시작', exact: true }).click();
-  await expect(page.getByText(/조회 결과 조건/)).toBeVisible();
+  const locationQuery = areaPath({ ...initialBounds(testLocation), chefId: null });
+  const locationResponse = page.waitForResponse(response => response.ok() && response.url().endsWith('/api' + locationQuery));
+  await page.getByRole('button', { name: '내 위치', exact: true }).click();
+  await locationResponse;
+  await expect(page.locator('.result-condition')).toHaveText(/이 지도 영역/);
   await expect(page.getByText('식당 조회 중', { exact: true })).toHaveCount(0);
   await expect(page.locator('.public-results').getByRole('button', { name: 'C 식당', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '관리자', exact: true }).click(); await detail(page, 'C 식당');

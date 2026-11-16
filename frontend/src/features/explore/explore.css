@@ -17,11 +17,65 @@
 .overlap { display: grid; max-height: 60%; overflow: auto; gap: .4rem; }
 .selected-chef { border-left: 4px solid #65794c; padding-left: .6rem !important; }
 .result-condition { font-size: .85rem; }
+.public-empty { padding: 0 20px 12px; }
+.public-detail { background: #fff; padding: 1rem; overflow: auto; }
+.public-detail article { padding: .8rem; margin-block: .5rem; background: #f8f9fc; border: 1px solid #e5e7eb; border-radius: 12px; }
+.public-result-selected { background: #f3efff; box-shadow: inset 4px 0 #6246ea; }
+@media (min-width: 900px) {
+  .public-shell { --rail-width: 64px; height: 100dvh; overflow: hidden; }
+  .public-shell > main { max-width: none; margin: 0; padding: 0; }
+  .public-shell > footer { display: none; }
+  .public-shell > header {
+    position: fixed; inset: 0 auto 0 0; z-index: 5;
+    width: var(--rail-width); height: auto; margin: 0; padding: 12px 0;
+    display: flex; flex-direction: column; justify-content: start; gap: 16px;
+    background: #fff; border: 0; border-right: 1px solid #e5e7eb;
+  }
+  .public-shell .brand > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .public-shell .brand-icon { width: 36px; height: 36px; font-size: 18px; background: #6246ea; color: #fff; }
+  .public-shell > header nav { display: grid; gap: 4px; width: 100%; }
+  .public-shell > header nav button { min-height: 44px; font-size: 12px; border-radius: 0; }
+  .public-shell > header nav .nav-active { color: #fff; background: #6246ea; border: 0; }
+  .public-explore {
+    --results-width: clamp(292px, 27vw, 392px);
+    --detail-width: clamp(280px, 26vw, 380px);
+    position: fixed; inset: 0; padding: 0; color: #171717;
+  }
+  .public-layout { position: relative; display: block; height: 100%; min-height: 0; }
+  .public-map { position: absolute; inset: 0; border-radius: 0; min-height: 0; }
+  .public-map-canvas { min-height: 0; }
+  .public-panel, .public-detail { position: absolute; z-index: 3; background: #fff; }
+  .public-panel {
+    inset: 0 auto 0 var(--rail-width, 0px); width: var(--results-width);
+    display: flex; flex-direction: column; padding: 0; overflow: hidden;
+    border: 0; border-right: 1px solid #e5e7eb; border-radius: 0;
+    box-shadow: 4px 0 16px #20203915;
+  }
+  .public-panel-top { padding: 16px 20px 12px; max-height: 72%; overflow: auto; border-bottom: 1px solid #e5e7eb; }
+  .public-panel h1 { margin: 4px 0 12px; font-size: 16px; }
+  .public-results { flex: 1; min-height: 0; max-height: none; }
+  .public-results article { padding: 12px 20px; border-color: #e5e7eb; }
+  .public-results > p { padding: 0 20px; }
+  .public-results article p { margin: 4px 0; }
+  .public-detail {
+    inset: 12px auto 12px calc(var(--rail-width, 0px) + var(--results-width) + 12px);
+    width: var(--detail-width); padding: 16px; border: 1px solid #e5e7eb;
+    border-radius: 16px; box-shadow: 0 8px 28px #20203926;
+    overflow-wrap: anywhere;
+  }
+  .public-map-search { position: absolute; z-index: 4; top: 16px; right: 20px; background: #fff; padding: .5rem; border-radius: 12px; }
+  .public-map-search button, .location-controls button:first-of-type { background: #6246ea; color: #fff; border-color: #6246ea; }
+  .public-explore button:focus-visible, .public-explore a:focus-visible { outline: 3px solid #6246ea; outline-offset: 2px; }
+  .public-explore > p[role="status"] { position: absolute; z-index: 4; right: 20px; bottom: 12px; max-width: 28ch; background: #fff; padding: 8px 12px; border-radius: 8px; }
+  .public-map .map-failure, .public-map .overlap { left: auto; right: 20px; max-width: 24ch; }
+}
 @media (max-width: 899px) {
   .public-layout { display: flex; flex-direction: column; height: auto; gap: .5rem; }
   .public-map { order: 0; height: 42vh; min-height: 280px; }
   .public-map-canvas { min-height: 280px; }
-  .public-panel { order: 1; max-height: 53vh; }
-  .public-results { max-height: 32vh; }
+  .public-map-search { order: 1; }
+  .public-panel { order: 2; overflow: visible; }
+  .public-results { max-height: none; overflow: visible; }
+  .public-detail { order: 3; overflow: visible; }
   .public-explore { padding: .5rem; }
 }

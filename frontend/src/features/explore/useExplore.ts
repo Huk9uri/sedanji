@@ -48,8 +48,11 @@ export function useExplore() {
     });
   }, []);
   useEffect(() => () => { sequence.current++; controller.current?.abort(); }, []);
-  function search() { if (cameraBounds) void request({ ...cameraBounds, chefId }); }
   function retry() { if (lastQuery.current) void request(lastQuery.current); }
-  function changeChef(id: number | null) { setChefId(id); if (cameraBounds) void request({ ...cameraBounds, chefId: id }); }
-  return { cameraBounds, setCameraBounds, requestedQuery, lastSuccess, chefId, loading, error, request, search, retry, changeChef, beginLocationChange, invalidate, removeUnavailable };
+  function changeChef(id: number | null, fallbackBounds?: Bounds) {
+    setChefId(id);
+    const bounds = cameraBounds ?? fallbackBounds;
+    if (bounds) void request({ ...bounds, chefId: id });
+  }
+  return { cameraBounds, setCameraBounds, requestedQuery, lastSuccess, chefId, loading, error, request, retry, changeChef, beginLocationChange, invalidate, removeUnavailable };
 }

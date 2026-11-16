@@ -20,7 +20,7 @@ const empty:Area={items:[],query:{west:126.96,east:126.99,south:37.55,north:37.5
 function respond(read:()=>Promise<Area>|Area) {
   api.mockImplementation(async path=>path.startsWith('/public/restaurants?')?read():path==='/session'?{authenticated:true,username:'admin'}:{items:[],page:0,size:50,totalElements:0,hasNext:false});
 }
-async function start() {render(<App/>);fireEvent.click(screen.getByRole('button',{name:'서울 시청 기본 지역'}));await waitFor(()=>expect(api.mock.calls.some(([p])=>p.startsWith('/public/restaurants?'))).toBe(true));}
+async function start() {render(<App/>);await waitFor(()=>expect(api.mock.calls.some(([p])=>p.startsWith('/public/restaurants?'))).toBe(true));}
 async function admin() {fireEvent.click(screen.getByRole('button',{name:'관리자'}));return screen.findByRole('button',{name:'공개 제어 성공'});}
 beforeEach(()=>{vi.resetAllMocks();window.history.replaceState(null,'','/');});
 afterEach(cleanup);
