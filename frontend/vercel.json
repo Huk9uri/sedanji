@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://sedanji-api.onrender.com/api/:path*"
+    }
+  ]
+}
