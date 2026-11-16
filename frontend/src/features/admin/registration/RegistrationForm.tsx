@@ -13,7 +13,10 @@ export default function RegistrationForm({ username, onExpired, onPublished, onC
 }) {
   const state = useRegistration(username, onExpired, onPublished, entry, onCommitted);
   const [changingPlace, setChangingPlace] = useState(false);
-  const [review, setReview] = useState(false);
+  const { fields, selection, draft } = state;
+  const [reviewed, setReviewed] = useState<Pick<typeof state, 'fields' | 'selection' | 'draft'> | null>(null);
+  const review = reviewed !== null && reviewed.fields === fields
+    && reviewed.selection === selection && reviewed.draft === draft;
   const [metadataBusy, setMetadataBusy] = useState(false);
   const [leaving, setLeaving] = useState<(() => void) | null>(null);
   const blocked = state.busy || !!state.pending || metadataBusy;
@@ -25,7 +28,6 @@ export default function RegistrationForm({ username, onExpired, onPublished, onC
     if (state.dirty) setLeaving(() => proceed); else proceed();
   }
   useEffect(() => { onGuard(requestLeave); return () => onGuard(null); });
-  useEffect(() => { setReview(false); }, [state.fields, state.selection, state.draft]);
   function close() { requestLeave(() => { state.reset(); onClose(); }); }
   return <section className="registration" aria-label="식당 직접 등록">
     <div className="section-heading"><div><span className="eyebrow">RESTAURANT REGISTRATION</span><h2>식당 등록</h2></div><button className="secondary" onClick={close}>양식 닫기</button></div>
@@ -44,7 +46,7 @@ export default function RegistrationForm({ username, onExpired, onPublished, onC
         onChef={state.createChef} onFailure={state.failure} onBusy={setMetadataBusy} disabled={blocked || state.readonly}/>}
       {!state.readonly && <><p className="field-help">임시 저장은 장소만 선택해도 가능합니다. 승인에는 셰프·영상·관계 유형과 근거 확인이 필요합니다.</p>
         <div className="registration-actions"><button className="secondary" disabled={blocked || !selected} onClick={state.save}>{state.draft ? '수정 저장' : '임시 저장'}</button>
-          <button disabled={blocked || !selected || (fixed && !state.draft) || !state.fields.chefId || !state.fields.video || !state.fields.mentionType || (!!state.draft && state.dirty)} onClick={() => setReview(true)}>승인 전 검토</button></div>
+          <button disabled={blocked || !selected || (fixed && !state.draft) || !state.fields.chefId || !state.fields.video || !state.fields.mentionType || (!!state.draft && state.dirty)} onClick={() => setReviewed({ fields, selection, draft })}>승인 전 검토</button></div>
         {fixed && !state.draft && <p className="notice">선택 식당을 고정했습니다. 관계를 추가하려면 먼저 임시 저장 후 초안을 승인하세요.</p>}
         {state.draft && state.dirty && <p className="notice">저장되지 않은 변경이 있습니다. 먼저 수정 저장하세요.</p>}
         {review && <section className="registration-review" aria-label="승인 전 검토"><h3>출처와 관계를 확인하세요</h3>
