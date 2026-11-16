@@ -223,8 +223,8 @@ test('C1 C2 C3 일부·마지막 중단 → 명시적 재확인 복구', async (
   const id = original.mentions[1].id;
   await expect(page.getByText('공개 관계 0 / 전체 관계 2', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '맛집 지도', exact: true }).click();
-  await page.getByRole('button', { name: '내 위치로 시작', exact: true }).click();
-  await expect(page.getByText(/조회 결과 조건/)).toBeVisible();
+
+  await expect(page.locator('.result-condition')).toBeVisible();
   await expect(page.getByText('식당 조회 중', { exact: true })).toHaveCount(0);
   await expect(page.locator('.public-results').getByRole('button', { name: 'C 식당', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '관리자', exact: true }).click(); await detail(page, 'C 식당');

@@ -87,6 +87,7 @@ test('모의 반응형: 900px 분기와 단일 결과·상세 패널', async ({ 
   await expect(page.getByRole('button', { name: item.name, exact: true })).toBeVisible();
   expect(await page.locator('.public-layout').evaluate(e => getComputedStyle(e).display)).toBe('flex');
   await page.setViewportSize({ width: 1200, height: 900 });
-  expect(await page.locator('.public-layout').evaluate(e => getComputedStyle(e).display)).toBe('grid');
+  expect(await page.locator('.public-layout').evaluate(e => getComputedStyle(e).display)).toBe('block');
+  await expect(page.locator('.public-map')).toHaveCSS('position', 'absolute');
   await page.getByRole('button', { name: item.name, exact: true }).click(); await expect(page.getByRole('region', { name: '식당 상세' })).toHaveCount(1);
 });
